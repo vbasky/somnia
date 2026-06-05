@@ -12,20 +12,20 @@ notes, so keep this format intact.
 
 ## [0.2.1] - 2026-06-06
 
-### Added
+### Added (0.2.1)
 
 - `SurrealRecord` derive macro is now re-exported from the `somnia` umbrella
   crate (`somnia::SurrealRecord`). Users no longer need `somnia-derive` as an
   explicit dependency — a single `somnia = "0.2"` in Cargo.toml is sufficient.
 
-### Changed
+### Changed (0.2.1)
 
 - README examples now use domain-agnostic `Post`/`Comment` models instead of
   media-specific `Asset`/`AssetVersion`.
 
 ## [0.2.0] - 2026-06-06
 
-### Fixed
+### Fixed (0.2.0)
 
 - **SurrealDB datetime/uuid literal compatibility** — datetime values now render
   as `d'…'` and UUIDs as `u'…'`, matching SurrealDB 2.0+ syntax. Previously they
@@ -36,7 +36,7 @@ notes, so keep this format intact.
   of clap's default exit code 2. Showing help/usage is not an error; genuine
   parse errors (unknown subcommand, missing required argument) still exit 2.
 
-### Changed
+### Changed (0.2.0)
 
 - **(Breaking) `Key` conversions are now idiomatic** — the key-inference logic
   moved into `From<&str>`/`From<String>` and a new `FromStr` impl (so
@@ -48,7 +48,7 @@ notes, so keep this format intact.
 
 Release-engineering and metadata patch — no library API changes.
 
-### Changed
+### Changed (0.1.1)
 
 - Corrected the declared minimum supported Rust version to **1.95** (was an
   optimistic 1.75). The SurrealDB 3.x dependency tree requires it: `roaring`
@@ -57,7 +57,7 @@ Release-engineering and metadata patch — no library API changes.
   1.95 is the true floor.
 - Fixed the `repository`/`homepage` URLs to `https://github.com/vbasky/somnia`.
 
-### Fixed
+### Fixed (0.1.1)
 
 - Green CI: applied `rustfmt`, and configured `cargo-deny` for the dependency
   tree — scoped BUSL-1.1 exceptions for the SurrealDB crates and a documented
@@ -67,7 +67,7 @@ Release-engineering and metadata patch — no library API changes.
 
 Initial release — a type-safe SurrealDB ORM for Rust.
 
-### Added
+### Added (0.1.0)
 
 - **Typed query builder** — compose `SELECT`/`CREATE`/`UPDATE`/`DELETE`
   SurrealQL from Rust with compile-time-checked fields and expressions.

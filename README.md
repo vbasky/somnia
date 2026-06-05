@@ -126,7 +126,7 @@ override), `flexible`, `name = "…"`, `skip`. Table attributes:
 Lay out migrations Diesel-style — one timestamped folder per migration with
 `up.surql` and `down.surql`:
 
-```
+```bash
 migrations/
   2025-01-01-000000_create_posts/
     up.surql
@@ -155,7 +155,7 @@ applies what's pending.
 ## Crates
 
 | Crate | Description |
-|-------|-------------|
+| ------- | ------------- |
 | [`somnia`](crates/somnia) | Umbrella crate: client, migrator, re-exports. Start here. |
 | [`somnia-core`](crates/somnia-core) | Query builder, expression tree, `SurrealRecord`/`SurrealSchema` traits. |
 | [`somnia-derive`](crates/somnia-derive) | `#[derive(SurrealRecord)]` proc-macro. |
