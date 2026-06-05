@@ -184,7 +184,9 @@ the full list).
 
 `0.2.x` — early but tested against SurrealDB 3.x (query builder, derive, schema
 generation, and migrator all covered by integration tests that run on an
-in-memory engine). The API may evolve before `1.0`.
+in-memory engine). The API may evolve before `1.0`. See the
+[roadmap](ROADMAP.md) for what's covered today and what's planned on the way to
+`1.0`.
 
 **MSRV:** Rust **1.95** (set by the SurrealDB 3.x dependency tree). Bumping the
 minimum supported Rust version is treated as a minor-version change.
