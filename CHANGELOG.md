@@ -10,6 +10,19 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-06
+
+### Added
+
+- `SurrealRecord` derive macro is now re-exported from the `somnia` umbrella
+  crate (`somnia::SurrealRecord`). Users no longer need `somnia-derive` as an
+  explicit dependency — a single `somnia = "0.2"` in Cargo.toml is sufficient.
+
+### Changed
+
+- README examples now use domain-agnostic `Post`/`Comment` models instead of
+  media-specific `Asset`/`AssetVersion`.
+
 ## [0.2.0] - 2026-06-06
 
 ### Fixed
