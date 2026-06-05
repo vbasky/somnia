@@ -17,7 +17,7 @@ migrations.
 
 ```toml
 [dependencies]
-somnia = "0.1"
+somnia = "0.2"
 ```
 
 ---
@@ -165,11 +165,17 @@ applies what's pending.
 
 ## CLI
 
-A standalone migration runner, modeled on `diesel-cli`:
+A standalone migration runner, modeled on `diesel-cli`. Install it with Cargo or
+Homebrew (both provide the `somnia` binary):
 
 ```bash
-cargo install somnia-cli                  # installs the `somnia` binary
+cargo install somnia-cli                       # from crates.io
+brew tap vbasky/somnia && brew install somnia  # Homebrew (macOS / Linux)
+```
 
+Then:
+
+```bash
 somnia migration generate create_posts    # scaffold a timestamped up/down folder
 somnia migration run                      # apply all pending migrations
 somnia migration revert                   # revert the latest
