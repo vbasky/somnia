@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags: [v*]
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Generate release notes
+        run: |
+          VERSION="${{ github.ref_name }}"
+          awk -v ver="${VERSION#v}" '
+            $0 ~ "^## \\[" ver "\\] - " { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > /tmp/release-notes.md
+          if [ ! -s /tmp/release-notes.md ]; then
+            echo "No CHANGELOG.md section for ${VERSION#v}" > /tmp/release-notes.md
+          fi
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: somnia ${{ github.ref_name }}
+          body_path: /tmp/release-notes.md
+
+  publish:
+    name: Publish to crates.io
+    timeout-minutes: 15
+    needs: [release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bail if prior workflow run started < 10 min ago
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prev=$(gh api "repos/${{ github.repository }}/actions/workflows/release.yml/runs?per_page=5" \
+            --jq "[.workflow_runs[] | select(.id != ${{ github.run_id }})][0].run_started_at")
+          if [ -z "$prev" ] || [ "$prev" = "null" ]; then
+            echo "No prior run found; proceeding."
+            exit 0
+          fi
+          diff=$(( $(date +%s) - $(date -d "$prev" +%s) ))
+          echo "Previous run started ${diff}s ago at ${prev}."
+          if [ "$diff" -lt 600 ]; then
+            echo "::error::Previous run started less than 10 minutes ago — bailing to avoid duplicate publish."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+
+      - name: Publish crates (dependency order, skip versions already on crates.io)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          # Dependency order: a crate must appear after every crate it depends on.
+          CRATES=(
+            somnia-core
+            somnia-derive
+            somnia            # facade — depends on somnia-core + somnia-derive
+          )
+          metadata=$(cargo metadata --format-version 1 --no-deps)
+          for c in "${CRATES[@]}"; do
+            version=$(jq -r --arg c "$c" '.packages[] | select(.name == $c) | .version' <<<"$metadata")
+            if [ -z "$version" ]; then
+              echo "::error::No version found for ${c} in workspace metadata"
+              exit 1
+            fi
+            http=$(curl -sSL -o /dev/null -w "%{http_code}" \
+              -H "User-Agent: somnia-release-bot (https://github.com/${{ github.repository }})" \
+              "https://crates.io/api/v1/crates/${c}/${version}")
+            if [ "$http" = "200" ]; then
+              echo "==> SKIP ${c}@${version}: already on crates.io"
+              continue
+            fi
+            echo "==> cargo publish ${c}@${version}"
+            cargo publish -p "${c}"
+          done

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/somnia-core", "crates/somnia-derive", "crates/somnia"]
+members = ["crates/somnia-core", "crates/somnia-derive", "crates/somnia", "crates/somnia-cli"]
 
 [workspace.package]
 version = "0.1.0"

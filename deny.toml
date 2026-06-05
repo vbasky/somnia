@@ -1,0 +1,34 @@
+# cargo-deny configuration — https://embarkstudios.github.io/cargo-deny/
+# Run locally with: cargo deny check
+
+[advisories]
+version = 2
+yanked = "deny"
+# Scope unmaintained-crate checks to direct workspace dependencies (actionable),
+# rather than failing on deep transitive crates we don't control.
+unmaintained = "workspace"
+ignore = []
+
+[licenses]
+version = 2
+# somnia itself is "MIT OR Apache-2.0"; this is the set permitted across the
+# dependency tree.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "MPL-2.0",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

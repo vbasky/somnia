@@ -10,6 +10,8 @@ pub enum Key {
 }
 
 impl Key {
+    // Infallible parse (always yields a `Key`), so it can't be the fallible `FromStr` trait.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         if let Ok(u) = Uuid::parse_str(s) { return Key::Uuid(u); }
         if let Ok(i) = s.parse::<i64>() { return Key::Int(i); }
