@@ -10,6 +10,27 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-06
+
+### Fixed
+
+- **SurrealDB datetime/uuid literal compatibility** — datetime values now render
+  as `d'…'` and UUIDs as `u'…'`, matching SurrealDB 2.0+ syntax. Previously they
+  rendered as bare quoted strings, so a filter like `created_at > <datetime>`
+  compared a `datetime` field against a `string` and silently mismatched.
+- **`somnia-cli` exit codes** — running `somnia` with no subcommand (or
+  `somnia migration` with no subcommand) now prints help and exits **0** instead
+  of clap's default exit code 2. Showing help/usage is not an error; genuine
+  parse errors (unknown subcommand, missing required argument) still exit 2.
+
+### Changed
+
+- **(Breaking) `Key` conversions are now idiomatic** — the key-inference logic
+  moved into `From<&str>`/`From<String>` and a new `FromStr` impl (so
+  `"abc".parse::<Key>()` works). The inherent `Key::from_str` method (and its
+  `#[allow(clippy::should_implement_trait)]`) was removed; use `Key::from(...)`
+  or `.parse()` instead. Inference behaviour is unchanged.
+
 ## [0.1.1] - 2026-06-05
 
 Release-engineering and metadata patch — no library API changes.

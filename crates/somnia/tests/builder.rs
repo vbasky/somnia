@@ -210,4 +210,34 @@ mod tests {
             .to_surrealql();
         assert!(sql.contains("SET image_url = NONE WHERE"));
     }
+
+    #[test]
+    fn datetime_literal_uses_d_prefix() {
+        // SurrealDB 2.0+ datetimes require the `d` prefix — a bare quoted string
+        // is a `string`, not a `datetime`, and won't compare against the field.
+        let dt = chrono::DateTime::parse_from_rfc3339("2023-06-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let sql = SystemSetting::table()
+            .project(vec![col("key")])
+            .filter(ident("created_at").gt(dt))
+            .to_surrealql();
+        assert_eq!(
+            sql,
+            "SELECT key FROM system_settings WHERE created_at > d'2023-06-01T12:00:00+00:00'"
+        );
+    }
+
+    #[test]
+    fn uuid_literal_uses_u_prefix() {
+        // SurrealDB 2.0+ uuids require the `u` prefix.
+        let sql = SystemSetting::table()
+            .project(vec![col("key")])
+            .filter(ident("ext_id").eq(uuid::Uuid::nil()))
+            .to_surrealql();
+        assert_eq!(
+            sql,
+            "SELECT key FROM system_settings WHERE ext_id = u'00000000-0000-0000-0000-000000000000'"
+        );
+    }
 }

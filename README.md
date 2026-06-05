@@ -26,7 +26,7 @@ Writing SurrealQL as hand-spliced strings is error-prone: typo'd table names,
 unescaped values, record-link mistakes, and projection drift. `somnia` lets your
 Rust types describe the schema once and gives you:
 
-- **Typed query building** — `Asset::table().select(...).filter(Asset::name().eq("x"))`
+- **Typed query building** — `Post::table().select(...).filter(Post::title().eq("hello"))`
 - **`#[derive(SurrealRecord)]`** — typed column accessors, table metadata, and
   schema DDL generated from the struct.
 - **Schema as code** — `up()` / `down()` emit `DEFINE TABLE` / `DEFINE FIELD` /
@@ -48,13 +48,13 @@ use somnia_derive::SurrealRecord;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealRecord)]
-#[table("asset")]
-struct Asset {
+#[table("post")]
+struct Post {
     #[field(thing)]
-    id: Thing<Asset>,
-    name: String,
-    content_type: Option<String>,
-    file_size: Option<i64>,
+    id: Thing<Post>,
+    title: String,
+    body: String,
+    published_at: Option<String>,
 }
 ```
 
@@ -64,31 +64,31 @@ struct Asset {
 use somnia::{col, field, ident, RecordLink, Returning};
 
 // SELECT with typed columns + function-wrapped projections
-let sql = Asset::table()
+let sql = Post::table()
     .project(vec![
         field("record::id(id)", "id"),
-        col("name"),
-        field("type::string(created_at)", "created_at"),
+        col("title"),
+        field("type::string(published_at)", "published_at"),
     ])
-    .filter(Asset::content_type().eq(Some("video/mp4".to_string())))
-    .order_desc(ident("created_at"))
+    .filter(Post::published_at().ne(None))
+    .order_desc(ident("published_at"))
     .limit(20)
     .to_surrealql();
 
 // CREATE … with record links
-let create = Asset::table()
+let create = Post::table()
     .create()
-    .record("xyz".to_string())                       // type::record('asset', 'xyz')
-    .set_lit("name", "video.mp4".to_string())
-    .set_expr("tenant", RecordLink::new("tenant", "default".to_string()))
-    .set_raw("created_at", "time::now()")
+    .record("post-1".to_string())
+    .set_lit("title", "Hello, world".to_string())
+    .set_expr("author", RecordLink::new("author", "bob".to_string()))
+    .set_raw("published_at", "time::now()")
     .returning(Returning::After)
     .to_surrealql();
 
 // UPDATE / DELETE with RETURN variants
-let del = Asset::table()
+let del = Post::table()
     .delete()
-    .filter(ident("id").eq_expr(RecordLink::new("asset", "xyz".to_string())))
+    .filter(ident("id").eq_expr(RecordLink::new("post", "post-1".to_string())))
     .returning(Returning::Before)
     .to_surrealql();
 ```
@@ -105,16 +105,16 @@ the builder still owns the statement structure, table names, and record links.
 use somnia::SurrealSchema;
 
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealRecord)]
-#[table("asset_version")]
-struct AssetVersion {
-    #[field(thing)] id: Thing<AssetVersion>,
-    #[field(record = "asset")] asset: serde_json::Value,  // record<asset>
-    #[field(default = "1")] version_number: i64,
+#[table("comment")]
+struct Comment {
+    #[field(thing)] id: Thing<Comment>,
+    #[field(record = "post")] post: serde_json::Value,
+    body: String,
     #[field(ty = "datetime", default = "time::now()")] created_at: String,
 }
 
-AssetVersion::up();   // DEFINE TABLE … ; DEFINE FIELD … ;
-AssetVersion::down(); // REMOVE TABLE IF EXISTS asset_version;
+Comment::up();   // DEFINE TABLE … ; DEFINE FIELD … ;
+Comment::down(); // REMOVE TABLE IF EXISTS comment;
 ```
 
 Field attributes: `#[field(thing)]` (record id), `record = "table"`
@@ -129,7 +129,7 @@ Lay out migrations Diesel-style — one timestamped folder per migration with
 
 ```
 migrations/
-  2025-01-01-000000_create_asset/
+  2025-01-01-000000_create_posts/
     up.surql
     down.surql
   2025-01-01-000100_seed_defaults/
@@ -169,7 +169,7 @@ A standalone migration runner, modeled on `diesel-cli`:
 ```bash
 cargo install somnia-cli            # installs the `somnia` binary
 
-somnia migration generate create_asset   # scaffold a timestamped up/down folder
+somnia migration generate create_posts   # scaffold a timestamped up/down folder
 somnia migration run                      # apply all pending migrations
 somnia migration revert                   # revert the latest
 somnia migration redo                     # revert + re-apply the latest

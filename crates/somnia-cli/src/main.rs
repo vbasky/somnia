@@ -100,7 +100,24 @@ async fn connect_db(c: &WithConn) -> Result<Surreal<Any>> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
+    // Parse manually so that showing help/version — including a bare `somnia` or
+    // `somnia migration` with no subcommand — exits 0. clap's default exits with
+    // code 2 for a missing subcommand, which shells flag as a failure even though
+    // printing help is not an error. Genuine parse errors still exit 2.
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(err) => {
+            use clap::error::ErrorKind;
+            err.print().ok();
+            let code = match err.kind() {
+                ErrorKind::DisplayHelp
+                | ErrorKind::DisplayVersion
+                | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand => 0,
+                _ => 2,
+            };
+            std::process::exit(code);
+        }
+    };
     match cli.command {
         Command::Migration(cmd) => run_migration(cmd).await,
     }

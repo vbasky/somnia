@@ -10,18 +10,6 @@ pub enum Key {
 }
 
 impl Key {
-    // Infallible parse (always yields a `Key`), so it can't be the fallible `FromStr` trait.
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self {
-        if let Ok(u) = Uuid::parse_str(s) {
-            return Key::Uuid(u);
-        }
-        if let Ok(i) = s.parse::<i64>() {
-            return Key::Int(i);
-        }
-        Key::String(s.to_string())
-    }
-
     pub fn to_surrealdb(&self) -> surrealdb_types::RecordIdKey {
         match self {
             Key::String(s) => surrealdb_types::RecordIdKey::String(s.clone()),
@@ -31,14 +19,31 @@ impl Key {
     }
 }
 
-impl From<String> for Key {
-    fn from(s: String) -> Self {
-        Self::from_str(&s)
+impl From<&str> for Key {
+    /// Infers the key kind from the text: a valid UUID becomes [`Key::Uuid`], an
+    /// integer becomes [`Key::Int`], and anything else becomes [`Key::String`].
+    fn from(s: &str) -> Self {
+        if let Ok(u) = Uuid::parse_str(s) {
+            Key::Uuid(u)
+        } else if let Ok(i) = s.parse::<i64>() {
+            Key::Int(i)
+        } else {
+            Key::String(s.to_owned())
+        }
     }
 }
-impl From<&str> for Key {
-    fn from(s: &str) -> Self {
-        Self::from_str(s)
+impl From<String> for Key {
+    fn from(s: String) -> Self {
+        Self::from(s.as_str())
+    }
+}
+
+impl std::str::FromStr for Key {
+    type Err = std::convert::Infallible;
+    /// Always succeeds — see [`From<&str>`](#impl-From<%26str>-for-Key) for the
+    /// inference rules. Lets callers use `"abc".parse::<Key>()`.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from(s))
     }
 }
 impl From<Uuid> for Key {
@@ -103,7 +108,7 @@ impl<'de, T: SurrealRecord> Deserialize<'de> for Thing<T> {
                 tb
             )));
         }
-        Ok(Thing::new(Key::from_str(id_part)))
+        Ok(Thing::new(id_part))
     }
 }
 
@@ -161,5 +166,28 @@ pub trait SurrealSchema: SurrealRecord {
     /// Alias for [`up`](Self::up) — the full `DEFINE TABLE`/`DEFINE FIELD` schema.
     fn define_schema() -> String {
         Self::up()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Key;
+    use std::str::FromStr;
+
+    #[test]
+    fn key_inference() {
+        assert_eq!(Key::from("123"), Key::Int(123));
+        assert!(matches!(Key::from("not-a-number"), Key::String(_)));
+        assert!(matches!(
+            Key::from("550e8400-e29b-41d4-a716-446655440000"),
+            Key::Uuid(_)
+        ));
+    }
+
+    #[test]
+    fn key_from_str_is_infallible() {
+        // `FromStr` mirrors `From<&str>` and never errors.
+        assert_eq!(Key::from_str("42").unwrap(), Key::Int(42));
+        assert_eq!("hello".parse::<Key>().unwrap(), Key::String("hello".into()));
     }
 }

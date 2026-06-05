@@ -95,7 +95,10 @@ impl SurrealQL for chrono::DateTime<chrono::Utc> {
         "datetime"
     }
     fn render_literal(value: &Self, buf: &mut String) {
-        buf.push('\'');
+        // SurrealDB 2.0+ requires the `d` prefix on datetime literals. A bare
+        // quoted string is a `string`, not a `datetime`, so `created_at > '…'`
+        // would compare against the wrong type; `created_at > d'…'` is correct.
+        buf.push_str("d'");
         buf.push_str(&value.to_rfc3339());
         buf.push('\'');
     }
@@ -107,7 +110,9 @@ impl SurrealQL for uuid::Uuid {
     }
     fn render_literal(value: &Self, buf: &mut String) {
         use std::fmt::Write;
-        buf.push('\'');
+        // SurrealDB 2.0+ requires the `u` prefix on uuid literals; a bare quoted
+        // string is a `string`, not a `uuid`.
+        buf.push_str("u'");
         let _ = write!(buf, "{value}");
         buf.push('\'');
     }
