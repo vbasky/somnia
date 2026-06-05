@@ -10,6 +10,15 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-06
+
+### Changed (0.3.1)
+
+- **crates.io README** — the `somnia` crate's own `README.md` (what crates.io
+  renders) now mirrors the repo README: banner, current `somnia = "0.3"` usage,
+  and absolute URLs for the banner/links so they resolve on crates.io. Docs only;
+  no code changes.
+
 ## [0.3.0] - 2026-06-06
 
 The P0 correctness fixes from the [roadmap](ROADMAP.md). Two are **breaking** at

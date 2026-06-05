@@ -1,7 +1,11 @@
 # somnia
 
+![somnia — type-safe SurrealDB ORM for Rust](https://raw.githubusercontent.com/vbasky/somnia/main/docs/banner.png)
+
 [![crates.io](https://img.shields.io/crates/v/somnia.svg)](https://crates.io/crates/somnia)
 [![docs.rs](https://img.shields.io/docsrs/somnia)](https://docs.rs/somnia)
+[![CI](https://github.com/vbasky/somnia/actions/workflows/ci.yml/badge.svg)](https://github.com/vbasky/somnia/actions/workflows/ci.yml)
+[![MSRV](https://img.shields.io/badge/MSRV-1.95-blue.svg)](#status)
 [![license](https://img.shields.io/crates/l/somnia.svg)](#license)
 
 **A type-safe [SurrealDB](https://surrealdb.com) ORM for Rust** — a typed query
@@ -13,7 +17,7 @@ migrations.
 
 ```toml
 [dependencies]
-somnia = "0.1"
+somnia = "0.3"
 ```
 
 ---
@@ -124,7 +128,7 @@ override), `flexible`, `name = "…"`, `skip`. Table attributes:
 Lay out migrations Diesel-style — one timestamped folder per migration with
 `up.surql` and `down.surql`:
 
-```
+```bash
 migrations/
   2025-01-01-000000_create_posts/
     up.surql
@@ -153,20 +157,49 @@ applies what's pending.
 ## Crates
 
 | Crate | Description |
-|-------|-------------|
-| [`somnia`](crates/somnia) | Umbrella crate: client, migrator, re-exports. Start here. |
-| [`somnia-core`](crates/somnia-core) | Query builder, expression tree, `SurrealRecord`/`SurrealSchema` traits. |
-| [`somnia-derive`](crates/somnia-derive) | `#[derive(SurrealRecord)]` proc-macro. |
+| ------- | ------------- |
+| [`somnia`](https://github.com/vbasky/somnia/tree/main/crates/somnia) | Umbrella crate: client, migrator, re-exports. Start here. |
+| [`somnia-core`](https://github.com/vbasky/somnia/tree/main/crates/somnia-core) | Query builder, expression tree, `SurrealRecord`/`SurrealSchema` traits. |
+| [`somnia-derive`](https://github.com/vbasky/somnia/tree/main/crates/somnia-derive) | `#[derive(SurrealRecord)]` proc-macro. |
+| [`somnia-cli`](https://github.com/vbasky/somnia/tree/main/crates/somnia-cli) | Diesel-cli-style migration runner (the `somnia` binary). |
+
+## CLI
+
+A standalone migration runner, modeled on `diesel-cli`. Install it with Cargo or
+Homebrew (both provide the `somnia` binary):
+
+```bash
+cargo install somnia-cli                       # from crates.io
+brew tap vbasky/somnia && brew install somnia  # Homebrew (macOS / Linux)
+```
+
+Then:
+
+```bash
+somnia migration generate create_posts    # scaffold a timestamped up/down folder
+somnia migration run                      # apply all pending migrations
+somnia migration revert                   # revert the latest
+somnia migration redo                     # revert + re-apply the latest
+somnia migration list                     # show applied / pending
+```
+
+Connection settings are read from flags or environment variables (`--help` for
+the full list).
 
 ## Status
 
-`0.1.x` — early but tested against SurrealDB 3.x (query builder, derive, schema
+`0.3.x` — early but tested against SurrealDB 3.x (query builder, derive, schema
 generation, and migrator all covered by integration tests that run on an
-in-memory engine). The API may evolve before `1.0`.
+in-memory engine). The API may evolve before `1.0`. See the
+[roadmap](https://github.com/vbasky/somnia/blob/main/ROADMAP.md) for what's covered today and what's planned on the way to
+`1.0`.
+
+**MSRV:** Rust **1.95** (set by the SurrealDB 3.x dependency tree). Bumping the
+minimum supported Rust version is treated as a minor-version change.
 
 ## License
 
-Licensed under the Apache License, Version 2.0.
+Licensed under the [Apache License, Version 2.0](https://github.com/vbasky/somnia/blob/main/LICENSE).
 
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
