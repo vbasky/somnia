@@ -42,7 +42,6 @@ generated queries transparent and easy to log.
 
 ```rust
 use somnia::{SurrealRecord, Thing};
-use somnia_derive::SurrealRecord;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealRecord)]

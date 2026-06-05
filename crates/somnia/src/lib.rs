@@ -2,7 +2,6 @@
 //!
 //! ```ignore
 //! use somnia::{SomniaClient, SurrealRecord, Thing};
-//! use somnia_derive::SurrealRecord;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(SurrealRecord, Serialize, Deserialize)]
@@ -38,6 +37,7 @@ pub mod migrate;
 
 pub use connection::{SomniaClient, SomniaError};
 pub use migrate::{MigrationStatus, Migrator};
+pub use somnia_derive::SurrealRecord;
 pub use somnia_core::{
     col,
     expr::{Column, ColumnMeta, ColumnSet, DynExpr, Order, SurrealQL},

@@ -5,8 +5,7 @@
 
 #[cfg(test)]
 mod tests {
-    use somnia::{SurrealSchema, Thing};
-    use somnia_derive::SurrealRecord;
+    use somnia::{SurrealRecord, SurrealSchema, Thing};
 
     // Mirrors the `asset_version` table from migration 027 — the Rust type is now
     // the single source of truth for that schema.
