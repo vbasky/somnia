@@ -4,7 +4,10 @@
 
 #[cfg(test)]
 mod tests {
-    use somnia::{col, field, ident, Batch, Grouped, NoneLit, Raw, RecordLink, Returning, SurrealRecord, Thing};
+    use somnia::{
+        col, field, ident, Batch, Grouped, NoneLit, Raw, RecordLink, Returning, SurrealRecord,
+        Thing,
+    };
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, SurrealRecord)]
     #[table("asset_comment")]

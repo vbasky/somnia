@@ -4,8 +4,8 @@
 
 #[cfg(test)]
 mod tests {
-    use somnia::{Relate, SurrealEdge, Thing};
     use somnia::SurrealRecord;
+    use somnia::{Relate, SurrealEdge, Thing};
     use surrealdb::engine::any::connect;
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, SurrealRecord)]

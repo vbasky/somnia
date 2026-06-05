@@ -37,7 +37,6 @@ pub mod migrate;
 
 pub use connection::{SomniaClient, SomniaError};
 pub use migrate::{MigrationStatus, Migrator};
-pub use somnia_derive::SurrealRecord;
 pub use somnia_core::{
     col,
     expr::{Column, ColumnMeta, ColumnSet, DynExpr, Order, SurrealQL},
@@ -46,3 +45,4 @@ pub use somnia_core::{
     types::{Key, SurrealEdge, SurrealRecord, SurrealSchema, Thing},
     DynExprBox, Func, Grouped, Ident, NoneLit, Projection, Raw, RecordLink,
 };
+pub use somnia_derive::SurrealRecord;
