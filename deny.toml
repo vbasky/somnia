@@ -18,8 +18,8 @@ ignore = [
 
 [licenses]
 version = 2
-# somnia itself is "MIT OR Apache-2.0"; this is the set of permissive licenses
-# permitted across the dependency tree.
+# somnia itself is "Apache-2.0"; this is the set of permissive licenses
+# permitted across the dependency tree (deps still carry MIT, BSD, etc.).
 allow = [
     "MIT",
     "Apache-2.0",

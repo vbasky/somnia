@@ -3,10 +3,10 @@ resolver = "2"
 members = ["crates/somnia-core", "crates/somnia-derive", "crates/somnia", "crates/somnia-cli"]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.95"
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 authors = ["Vikram Bhaskaran <vikram.bhaskaran@outlook.com>"]
 repository = "https://github.com/vbasky/somnia"
 homepage = "https://github.com/vbasky/somnia"

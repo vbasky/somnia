@@ -10,6 +10,14 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-06-06
+
+### Changed (0.2.2)
+
+- **License is now Apache-2.0 only** (was the dual `MIT OR Apache-2.0`).
+  Consolidated to a single `LICENSE` file so GitHub detects the license, and
+  updated the `license` field and all READMEs accordingly.
+
 ## [0.2.1] - 2026-06-06
 
 ### Added (0.2.1)
