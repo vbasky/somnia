@@ -48,7 +48,8 @@ enum MigrationCmd {
     Redo(WithConn),
     /// List applied and pending migrations
     List(WithConn),
-    /// Scaffold a new timestamped migration folder (offline)
+    /// Scaffold a new timestamped migration folder (offline). Alias: `new`.
+    #[command(visible_alias = "new")]
     Generate {
         /// Name appended after the timestamp
         name: String,
