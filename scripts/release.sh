@@ -31,6 +31,7 @@ CRATES=(
   somnia-core
   somnia-derive
   somnia
+  somnia-cli
 )
 
 # ── pre-flight ─────────────────────────────────────────────────────────────

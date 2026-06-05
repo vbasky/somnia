@@ -75,6 +75,7 @@ jobs:
             somnia-core
             somnia-derive
             somnia            # facade — depends on somnia-core + somnia-derive
+            somnia-cli        # migration-runner binary — depends on somnia
           )
           metadata=$(cargo metadata --format-version 1 --no-deps)
           for c in "${CRATES[@]}"; do

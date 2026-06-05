@@ -24,5 +24,8 @@ Initial release — a type-safe SurrealDB ORM for Rust.
   derived record types.
 - **Diesel-style migrations** — versioned, ordered migrations against a
   SurrealDB instance.
+- **`somnia-cli`** — a diesel-cli-style migration runner binary (`somnia`) with
+  `migration generate` / `run` / `revert` / `redo` / `list`.
 - Workspace split into `somnia-core` (query builder + expression tree),
-  `somnia-derive` (proc-macros), and `somnia` (the facade users depend on).
+  `somnia-derive` (proc-macros), `somnia` (the facade users depend on), and
+  `somnia-cli` (the migration CLI).
