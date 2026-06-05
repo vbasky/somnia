@@ -94,3 +94,70 @@ jobs:
             echo "==> cargo publish ${c}@${version}"
             cargo publish -p "${c}"
           done
+
+  formula:
+    name: Homebrew tap
+    needs: [publish]
+    if: github.repository == 'vbasky/somnia'
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Generate formula
+        id: formula
+        run: |
+          tag="${{ github.ref_name }}"
+          url="https://github.com/vbasky/somnia/archive/refs/tags/${tag}.tar.gz"
+          sha=$(curl -sL "${url}" | shasum -a 256 | cut -d' ' -f1)
+          version="${tag#v}"
+
+          cat <<RUBY > /tmp/somnia.rb
+          class Somnia < Formula
+            desc "Type-safe SurrealDB ORM for Rust — diesel-style migration CLI"
+            homepage "https://github.com/vbasky/somnia"
+            url "${url}"
+            sha256 "${sha}"
+            license "Apache-2.0"
+
+            depends_on "rust" => :build
+
+            def install
+              system "cargo", "install", *std_cargo_args(path: "crates/somnia-cli")
+            end
+
+            test do
+              assert_match version.to_s,
+                shell_output("\#{bin}/somnia --version")
+            end
+          end
+          RUBY
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Push to tap
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_CORE_TOKEN }}
+        run: |
+          VERSION="${{ steps.formula.outputs.version }}"
+
+          # Degrade gracefully until the tap repo + token exist, so a release is
+          # never blocked on Homebrew setup.
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::warning::HOMEBREW_CORE_TOKEN not set — skipping tap update. Add the secret and create vbasky/homebrew-somnia to enable 'brew install'."
+            exit 0
+          fi
+          if ! git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/vbasky/homebrew-somnia.git" /tmp/tap 2>/dev/null; then
+            echo "::warning::Could not clone vbasky/homebrew-somnia — create the tap repo to enable 'brew install'."
+            exit 0
+          fi
+
+          cd /tmp/tap
+          mkdir -p Formula
+          cp /tmp/somnia.rb Formula/somnia.rb
+          git add Formula/somnia.rb
+          git -c user.name="somnia-bot" \
+             -c user.email="bot@somnia.dev" \
+             commit -m "somnia ${VERSION}" --allow-empty
+          git push origin HEAD

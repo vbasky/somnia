@@ -10,6 +10,11 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-06
+
+The P0 correctness fixes from the [roadmap](ROADMAP.md). Two are **breaking** at
+the serialization/type-bound level, hence the minor bump.
+
 ### Fixed
 
 - **Record-id key escaping** — `Thing` literals and `RELATE` now backtick-quote
@@ -18,11 +23,22 @@ notes, so keep this format intact.
   simple-identifier keys are unchanged.
 - **`INSERT` renders inline** — `Insert::to_surrealql` now serializes the queued
   record(s) as object literals (`INSERT INTO t { … }` / `[ … ]`) instead of an
-  unbound `$data` placeholder that never resolved. Rendering now requires
-  `T: Serialize`.
-- **Geometry is GeoJSON** — `Point`/`LineString`/`Polygon` serialize as GeoJSON
-  objects (`{ "type", "coordinates" }`) rather than bare coordinate arrays, so
-  SurrealDB stores them as `geometry`; added query-literal support for them too.
+  unbound `$data` placeholder that never resolved.
+
+### Changed
+
+- **(Breaking) Geometry is GeoJSON** — `Point`/`LineString`/`Polygon` now
+  serialize/deserialize as GeoJSON objects (`{ "type", "coordinates" }`) instead
+  of bare coordinate arrays, so SurrealDB stores them as `geometry`. They also
+  gained query-literal support. Any data persisted in the old array form must be
+  migrated.
+- **(Breaking) `Insert::to_surrealql` now requires `T: Serialize`** (it
+  serializes the record inline).
+
+### Added
+
+- **Homebrew tap** — releases now publish a formula to `vbasky/homebrew-somnia`
+  (`brew tap vbasky/somnia && brew install somnia`).
 
 ## [0.2.2] - 2026-06-06
 
