@@ -60,7 +60,7 @@ cargo test --workspace
 cargo build --workspace   # final manifest + compile validation
 
 # ── commit, tag, push ──────────────────────────────────────────────────────
-git add Cargo.toml crates/*/Cargo.toml CHANGELOG.md
+git add Cargo.toml Cargo.lock crates/*/Cargo.toml CHANGELOG.md
 git commit -m "release: ${TAG}"
 git tag -a "${TAG}" -m "somnia ${VERSION}"
 git push origin main
