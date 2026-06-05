@@ -16,9 +16,11 @@ Release-engineering and metadata patch — no library API changes.
 
 ### Changed
 
-- Corrected the declared minimum supported Rust version to **1.85** (was an
-  optimistic 1.75 — the SurrealDB 3.x dependency tree requires `edition2024`,
-  and `roaring` is built against it).
+- Corrected the declared minimum supported Rust version to **1.95** (was an
+  optimistic 1.75). The SurrealDB 3.x dependency tree requires it: `roaring`
+  declares 1.90 (the highest *declared* MSRV), but `diskann` does not actually
+  compile below 1.95 (it hits rust-lang/rust#100013 on older toolchains), so
+  1.95 is the true floor.
 - Fixed the `repository`/`homepage` URLs to `https://github.com/vbasky/somnia`.
 
 ### Fixed
