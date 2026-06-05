@@ -274,13 +274,24 @@ impl<T: SurrealRecord> Insert<T> {
         &self.data
     }
 
-    pub fn to_surrealql(&self) -> String {
+    /// Render `INSERT INTO <table> <object|array> [RETURN AFTER]`, serializing the
+    /// queued record(s) inline as SurrealQL object literals (JSON is a valid
+    /// subset). A single record renders as `{ … }`, multiple as `[ {…}, {…} ]`.
+    pub fn to_surrealql(&self) -> String
+    where
+        T: serde::Serialize,
+    {
+        let body = match self.data.as_slice() {
+            [] => "[]".to_string(),
+            [one] => serde_json::to_string(one).unwrap_or_else(|_| "{}".to_string()),
+            many => serde_json::to_string(many).unwrap_or_else(|_| "[]".to_string()),
+        };
         let returning = if self.return_fields.is_empty() {
             ""
         } else {
             " RETURN AFTER"
         };
-        format!("INSERT INTO {} $data{}", T::table_name(), returning)
+        format!("INSERT INTO {} {}{}", T::table_name(), body, returning)
     }
 }
 
@@ -613,6 +624,20 @@ impl std::fmt::Display for Batch {
 // RELATE — graph edges
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/// Render a record's id as `table:<escaped-key>` into `buf`.
+fn record_id(thing: &Thing<impl SurrealRecord>, buf: &mut String) {
+    buf.push_str(thing.table());
+    buf.push(':');
+    thing.key.render_id(buf);
+}
+
+/// Return a record's id as a `table:<escaped-key>` string.
+fn record_id_string(thing: &Thing<impl SurrealRecord>) -> String {
+    let mut s = String::new();
+    record_id(thing, &mut s);
+    s
+}
+
 pub struct Relate<E: SurrealEdge> {
     _marker: std::marker::PhantomData<E>,
 }
@@ -628,14 +653,13 @@ impl<E: SurrealEdge> Relate<E> {
         from: &Thing<impl SurrealRecord>,
         to: &Thing<impl SurrealRecord>,
     ) -> String {
-        format!(
-            "RELATE {}:{} -> {} -> {}:{}",
-            from.table(),
-            from.key,
-            E::edge_name(),
-            to.table(),
-            to.key
-        )
+        let mut q = String::from("RELATE ");
+        record_id(from, &mut q);
+        q.push_str(" -> ");
+        q.push_str(E::edge_name());
+        q.push_str(" -> ");
+        record_id(to, &mut q);
+        q
     }
 }
 
@@ -665,14 +689,14 @@ impl<E: SurrealEdge> RelateEdge<E> {
     pub fn from(from: &Thing<impl SurrealRecord>) -> Self {
         Self {
             _marker: std::marker::PhantomData,
-            from_label: format!("{}:{}", from.table(), from.key),
+            from_label: record_id_string(from),
             to_label: String::new(),
             content_json: None,
         }
     }
 
     pub fn to(mut self, to: &Thing<impl SurrealRecord>) -> Self {
-        self.to_label = format!("{}:{}", to.table(), to.key);
+        self.to_label = record_id_string(to);
         self
     }
 

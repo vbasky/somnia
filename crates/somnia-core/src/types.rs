@@ -17,6 +17,45 @@ impl Key {
             Key::Int(i) => surrealdb_types::RecordIdKey::Number(*i),
         }
     }
+
+    /// Render this key as a SurrealDB record-id key fragment — the part after
+    /// `table:`. Integers render bare; UUIDs and any string that isn't a simple
+    /// identifier are wrapped in backticks (with `\` and `` ` `` escaped) so they
+    /// parse as a single string id. Without this, a UUID key like
+    /// `asset:0190a-…` would be parsed as an arithmetic expression.
+    pub fn render_id(&self, buf: &mut String) {
+        use std::fmt::Write;
+        match self {
+            Key::Int(i) => {
+                let _ = write!(buf, "{i}");
+            }
+            Key::Uuid(u) => {
+                let _ = write!(buf, "`{u}`");
+            }
+            Key::String(s) if is_simple_ident(s) => buf.push_str(s),
+            Key::String(s) => {
+                buf.push('`');
+                for c in s.chars() {
+                    if c == '\\' || c == '`' {
+                        buf.push('\\');
+                    }
+                    buf.push(c);
+                }
+                buf.push('`');
+            }
+        }
+    }
+}
+
+/// A bare SurrealDB identifier: ASCII letter/underscore followed by
+/// letters/digits/underscores. Such record-id keys need no quoting.
+fn is_simple_ident(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 impl From<&str> for Key {
@@ -114,14 +153,98 @@ impl<'de, T: SurrealRecord> Deserialize<'de> for Thing<T> {
 
 // ─── Geometry ─────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// SurrealDB stores geometry as GeoJSON objects (`{ "type": …, "coordinates": … }`),
+// not bare coordinate arrays. These types serialize/deserialize accordingly so a
+// `Point` round-trips as a real `geometry` value rather than an `array<float>`.
+
+/// A GeoJSON point — `(longitude, latitude)`.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Point(pub f64, pub f64);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl Serialize for Point {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut st = s.serialize_struct("Point", 2)?;
+        st.serialize_field("type", "Point")?;
+        st.serialize_field("coordinates", &[self.0, self.1])?;
+        st.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Point {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct G {
+            coordinates: [f64; 2],
+        }
+        let g = G::deserialize(d)?;
+        Ok(Point(g.coordinates[0], g.coordinates[1]))
+    }
+}
+
+/// A GeoJSON line string — an ordered list of `(longitude, latitude)` points.
+#[derive(Debug, Clone, PartialEq)]
 pub struct LineString(pub Vec<(f64, f64)>);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl Serialize for LineString {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let coords: Vec<[f64; 2]> = self.0.iter().map(|&(x, y)| [x, y]).collect();
+        let mut st = s.serialize_struct("LineString", 2)?;
+        st.serialize_field("type", "LineString")?;
+        st.serialize_field("coordinates", &coords)?;
+        st.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for LineString {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct G {
+            coordinates: Vec<[f64; 2]>,
+        }
+        let g = G::deserialize(d)?;
+        Ok(LineString(
+            g.coordinates.into_iter().map(|[x, y]| (x, y)).collect(),
+        ))
+    }
+}
+
+/// A GeoJSON polygon — a list of linear rings of `(longitude, latitude)` points
+/// (the first ring is the exterior; any others are holes).
+#[derive(Debug, Clone, PartialEq)]
 pub struct Polygon(pub Vec<Vec<(f64, f64)>>);
+
+impl Serialize for Polygon {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let coords: Vec<Vec<[f64; 2]>> = self
+            .0
+            .iter()
+            .map(|ring| ring.iter().map(|&(x, y)| [x, y]).collect())
+            .collect();
+        let mut st = s.serialize_struct("Polygon", 2)?;
+        st.serialize_field("type", "Polygon")?;
+        st.serialize_field("coordinates", &coords)?;
+        st.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Polygon {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct G {
+            coordinates: Vec<Vec<[f64; 2]>>,
+        }
+        let g = G::deserialize(d)?;
+        Ok(Polygon(
+            g.coordinates
+                .into_iter()
+                .map(|ring| ring.into_iter().map(|[x, y]| (x, y)).collect())
+                .collect(),
+        ))
+    }
+}
 
 // ─── SurrealRecord trait ──────────────────────────────────────────────────────
 
@@ -171,8 +294,14 @@ pub trait SurrealSchema: SurrealRecord {
 
 #[cfg(test)]
 mod tests {
-    use super::Key;
+    use super::{Key, LineString, Point, Polygon};
     use std::str::FromStr;
+
+    fn render(k: &Key) -> String {
+        let mut s = String::new();
+        k.render_id(&mut s);
+        s
+    }
 
     #[test]
     fn key_inference() {
@@ -189,5 +318,48 @@ mod tests {
         // `FromStr` mirrors `From<&str>` and never errors.
         assert_eq!(Key::from_str("42").unwrap(), Key::Int(42));
         assert_eq!("hello".parse::<Key>().unwrap(), Key::String("hello".into()));
+    }
+
+    #[test]
+    fn key_render_id_escapes_non_simple_keys() {
+        assert_eq!(render(&Key::Int(7)), "7");
+        // simple identifier → bare
+        assert_eq!(render(&Key::String("alice".into())), "alice");
+        // UUID has dashes → must be backtick-quoted so it isn't parsed as math
+        assert_eq!(
+            render(&Key::from("550e8400-e29b-41d4-a716-446655440000")),
+            "`550e8400-e29b-41d4-a716-446655440000`"
+        );
+        // special chars → quoted + escaped
+        assert_eq!(render(&Key::String("a b/c".into())), "`a b/c`");
+        assert_eq!(render(&Key::String("ti`ck".into())), "`ti\\`ck`");
+    }
+
+    #[test]
+    fn geometry_serializes_as_geojson() {
+        assert_eq!(
+            serde_json::to_string(&Point(1.0, 2.0)).unwrap(),
+            r#"{"type":"Point","coordinates":[1.0,2.0]}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&LineString(vec![(0.0, 0.0), (1.0, 1.0)])).unwrap(),
+            r#"{"type":"LineString","coordinates":[[0.0,0.0],[1.0,1.0]]}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Polygon(vec![vec![(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)]]))
+                .unwrap(),
+            r#"{"type":"Polygon","coordinates":[[[0.0,0.0],[1.0,0.0],[0.0,1.0]]]}"#
+        );
+    }
+
+    #[test]
+    fn geometry_round_trips() {
+        let p = Point(12.5, -3.25);
+        let back: Point = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(p, back);
+
+        let poly = Polygon(vec![vec![(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)]]);
+        let back: Polygon = serde_json::from_str(&serde_json::to_string(&poly).unwrap()).unwrap();
+        assert_eq!(poly, back);
     }
 }

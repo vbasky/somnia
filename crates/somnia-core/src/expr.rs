@@ -131,6 +131,26 @@ impl SurrealQL for serde_json::Value {
     }
 }
 
+// Geometry literals render as GeoJSON objects (a valid SurrealQL object literal),
+// e.g. `{"type":"Point","coordinates":[1.0,2.0]}`.
+macro_rules! geometry_surrealql {
+    ($t:ident, $name:literal) => {
+        impl SurrealQL for crate::types::$t {
+            fn surreal_type() -> &'static str {
+                $name
+            }
+            fn render_literal(value: &Self, buf: &mut String) {
+                if let Ok(s) = serde_json::to_string(value) {
+                    buf.push_str(&s);
+                }
+            }
+        }
+    };
+}
+geometry_surrealql!(Point, "geometry<point>");
+geometry_surrealql!(LineString, "geometry<line>");
+geometry_surrealql!(Polygon, "geometry<polygon>");
+
 impl<T: SurrealQL> SurrealQL for Option<T> {
     fn surreal_type() -> &'static str {
         T::surreal_type()
@@ -148,8 +168,9 @@ impl<T: crate::types::SurrealRecord> SurrealQL for crate::types::Thing<T> {
         "record"
     }
     fn render_literal(value: &Self, buf: &mut String) {
-        use std::fmt::Write;
-        let _ = write!(buf, "{}:{}", T::table_name(), value.key);
+        buf.push_str(T::table_name());
+        buf.push(':');
+        value.key.render_id(buf);
     }
 }
 

@@ -106,4 +106,16 @@ mod tests {
         let sql = Relate::<Follows>::to_surrealql(&alice, &bob);
         assert_eq!(sql, "RELATE user:alice -> follows -> user:bob");
     }
+
+    #[test]
+    fn relate_escapes_complex_record_keys() {
+        // A UUID key must be quoted so RELATE produces a valid record id.
+        let a: Thing<User> = Thing::new("550e8400-e29b-41d4-a716-446655440000");
+        let b: Thing<User> = Thing::new("bob");
+        let sql = Relate::<Follows>::to_surrealql(&a, &b);
+        assert_eq!(
+            sql,
+            "RELATE user:`550e8400-e29b-41d4-a716-446655440000` -> follows -> user:bob"
+        );
+    }
 }

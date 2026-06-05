@@ -10,6 +10,20 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Record-id key escaping** — `Thing` literals and `RELATE` now backtick-quote
+  UUID and non-identifier string keys (e.g. `asset:` `` `0190a-…` ``), so they
+  parse as a record id instead of an arithmetic expression. Integer and
+  simple-identifier keys are unchanged.
+- **`INSERT` renders inline** — `Insert::to_surrealql` now serializes the queued
+  record(s) as object literals (`INSERT INTO t { … }` / `[ … ]`) instead of an
+  unbound `$data` placeholder that never resolved. Rendering now requires
+  `T: Serialize`.
+- **Geometry is GeoJSON** — `Point`/`LineString`/`Polygon` serialize as GeoJSON
+  objects (`{ "type", "coordinates" }`) rather than bare coordinate arrays, so
+  SurrealDB stores them as `geometry`; added query-literal support for them too.
+
 ## [0.2.2] - 2026-06-06
 
 ### Changed (0.2.2)

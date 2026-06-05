@@ -242,4 +242,34 @@ mod tests {
             "SELECT key FROM system_settings WHERE ext_id = u'00000000-0000-0000-0000-000000000000'"
         );
     }
+
+    #[test]
+    fn thing_literal_escapes_uuid_key() {
+        // A UUID record-id key has dashes; it must be backtick-quoted or it parses
+        // as an arithmetic expression rather than a record id.
+        let t: Thing<SystemSetting> = Thing::new("550e8400-e29b-41d4-a716-446655440000");
+        let sql = SystemSetting::table()
+            .project(vec![col("ref")])
+            .filter(ident("ref").eq(t))
+            .to_surrealql();
+        assert_eq!(
+            sql,
+            "SELECT ref FROM system_settings WHERE ref = system_settings:`550e8400-e29b-41d4-a716-446655440000`"
+        );
+    }
+
+    #[test]
+    fn insert_renders_record_inline() {
+        // INSERT serializes the record inline as an object literal — no unbound $data.
+        let row = SystemSetting {
+            id: Thing::new("k1"),
+            key: "theme".to_string(),
+            value: None,
+        };
+        let sql = SystemSetting::table().insert().content(row).to_surrealql();
+        assert_eq!(
+            sql,
+            r#"INSERT INTO system_settings {"id":"system_settings:k1","key":"theme","value":null}"#
+        );
+    }
 }
