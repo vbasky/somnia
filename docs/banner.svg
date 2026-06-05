@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="somnia — type-safe SurrealDB ORM for Rust">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#fbfcfe"/>
+      <stop offset="1" stop-color="#eef2f7"/>
+    </linearGradient>
+  </defs>
+
+  <!-- backdrop: cool near-white with a faint border, matching viser/revelo -->
+  <rect x="2" y="2" width="1196" height="626" rx="22" fill="url(#bg)" stroke="#e2e8f0" stroke-width="2"/>
+
+  <!-- record-link graph icon (navy nodes, orange hub) -->
+  <g transform="translate(600 170)">
+    <g stroke="#2d3750" stroke-width="2.5" stroke-opacity="0.32" stroke-linecap="round">
+      <line x1="0" y1="0" x2="-52" y2="-44"/>
+      <line x1="0" y1="0" x2="54" y2="-46"/>
+      <line x1="0" y1="0" x2="-66" y2="34"/>
+      <line x1="0" y1="0" x2="4" y2="60"/>
+      <line x1="0" y1="0" x2="66" y2="30"/>
+      <line x1="-52" y1="-44" x2="54" y2="-46"/>
+    </g>
+    <g fill="#2d3750">
+      <circle cx="-52" cy="-44" r="8"/>
+      <circle cx="54"  cy="-46" r="7"/>
+      <circle cx="-66" cy="34"  r="7"/>
+      <circle cx="4"   cy="60"  r="8"/>
+      <circle cx="66"  cy="30"  r="7"/>
+    </g>
+    <!-- hub: the linked record -->
+    <circle cx="0" cy="0" r="15" fill="#f2711c"/>
+    <circle cx="0" cy="0" r="6" fill="#ffffff"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="600" y="335" text-anchor="middle" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="104" font-weight="700" fill="#2d3750" letter-spacing="1">somnia</text>
+
+  <!-- orange accent underline -->
+  <rect x="450" y="362" width="300" height="6" rx="3" fill="#f2711c"/>
+
+  <!-- tagline -->
+  <text x="600" y="428" text-anchor="middle" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="32" font-weight="400" fill="#5b6577">Type-safe SurrealDB ORM for Rust</text>
+
+  <!-- feature chips -->
+  <text x="600" y="508" text-anchor="middle" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" font-weight="500" fill="#8a93a3" letter-spacing="1">SELECT &#160;&#160;·&#160;&#160; CREATE &#160;&#160;·&#160;&#160; UPDATE &#160;&#160;·&#160;&#160; DELETE &#160;&#160;·&#160;&#160; RELATE &#160;&#160;·&#160;&#160; schema &#160;&#160;·&#160;&#160; migrations</text>
+
+  <!-- footer -->
+  <text x="600" y="578" text-anchor="middle" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="21" font-weight="400" fill="#9aa3b2">github.com/vbasky/somnia &#160;&#160;·&#160;&#160; #[derive(SurrealRecord)] &#160;&#160;·&#160;&#160; Apache-2.0</text>
+</svg>

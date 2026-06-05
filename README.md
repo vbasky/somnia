@@ -1,5 +1,7 @@
 # somnia
 
+![somnia — type-safe SurrealDB ORM for Rust](docs/banner.png)
+
 [![crates.io](https://img.shields.io/crates/v/somnia.svg)](https://crates.io/crates/somnia)
 [![docs.rs](https://img.shields.io/docsrs/somnia)](https://docs.rs/somnia)
 [![CI](https://github.com/vbasky/somnia/actions/workflows/ci.yml/badge.svg)](https://github.com/vbasky/somnia/actions/workflows/ci.yml)
@@ -166,9 +168,9 @@ applies what's pending.
 A standalone migration runner, modeled on `diesel-cli`:
 
 ```bash
-cargo install somnia-cli            # installs the `somnia` binary
+cargo install somnia-cli                  # installs the `somnia` binary
 
-somnia migration generate create_posts   # scaffold a timestamped up/down folder
+somnia migration generate create_posts    # scaffold a timestamped up/down folder
 somnia migration run                      # apply all pending migrations
 somnia migration revert                   # revert the latest
 somnia migration redo                     # revert + re-apply the latest
@@ -180,7 +182,7 @@ the full list).
 
 ## Status
 
-`0.1.x` — early but tested against SurrealDB 3.x (query builder, derive, schema
+`0.2.x` — early but tested against SurrealDB 3.x (query builder, derive, schema
 generation, and migrator all covered by integration tests that run on an
 in-memory engine). The API may evolve before `1.0`.
 
