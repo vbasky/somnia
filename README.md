@@ -2,6 +2,8 @@
 
 [![crates.io](https://img.shields.io/crates/v/somnia.svg)](https://crates.io/crates/somnia)
 [![docs.rs](https://img.shields.io/docsrs/somnia)](https://docs.rs/somnia)
+[![CI](https://github.com/vbasky/somnia/actions/workflows/ci.yml/badge.svg)](https://github.com/vbasky/somnia/actions/workflows/ci.yml)
+[![MSRV](https://img.shields.io/badge/MSRV-1.85-blue.svg)](#status)
 [![license](https://img.shields.io/crates/l/somnia.svg)](#license)
 
 **A type-safe [SurrealDB](https://surrealdb.com) ORM for Rust** — a typed query
@@ -158,12 +160,33 @@ applies what's pending.
 | [`somnia`](crates/somnia) | Umbrella crate: client, migrator, re-exports. Start here. |
 | [`somnia-core`](crates/somnia-core) | Query builder, expression tree, `SurrealRecord`/`SurrealSchema` traits. |
 | [`somnia-derive`](crates/somnia-derive) | `#[derive(SurrealRecord)]` proc-macro. |
+| [`somnia-cli`](crates/somnia-cli) | Diesel-cli-style migration runner (the `somnia` binary). |
+
+## CLI
+
+A standalone migration runner, modeled on `diesel-cli`:
+
+```bash
+cargo install somnia-cli            # installs the `somnia` binary
+
+somnia migration generate create_asset   # scaffold a timestamped up/down folder
+somnia migration run                      # apply all pending migrations
+somnia migration revert                   # revert the latest
+somnia migration redo                     # revert + re-apply the latest
+somnia migration list                     # show applied / pending
+```
+
+Connection settings are read from flags or environment variables (`--help` for
+the full list).
 
 ## Status
 
 `0.1.x` — early but tested against SurrealDB 3.x (query builder, derive, schema
 generation, and migrator all covered by integration tests that run on an
 in-memory engine). The API may evolve before `1.0`.
+
+**MSRV:** Rust **1.85** (set by the SurrealDB 3.x dependency tree). Bumping the
+minimum supported Rust version is treated as a minor-version change.
 
 ## License
 

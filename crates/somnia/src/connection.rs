@@ -130,6 +130,6 @@ impl SomniaClient {
             .query(surql)
             .await
             .map_err(|e| SomniaError::Connection(e.to_string()))?;
-        Ok(res.take(0).map_err(|e| SomniaError::Deser(e.to_string()))?)
+        res.take(0).map_err(|e| SomniaError::Deser(e.to_string()))
     }
 }

@@ -13,26 +13,44 @@ impl Key {
     // Infallible parse (always yields a `Key`), so it can't be the fallible `FromStr` trait.
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
-        if let Ok(u) = Uuid::parse_str(s) { return Key::Uuid(u); }
-        if let Ok(i) = s.parse::<i64>() { return Key::Int(i); }
+        if let Ok(u) = Uuid::parse_str(s) {
+            return Key::Uuid(u);
+        }
+        if let Ok(i) = s.parse::<i64>() {
+            return Key::Int(i);
+        }
         Key::String(s.to_string())
     }
 
     pub fn to_surrealdb(&self) -> surrealdb_types::RecordIdKey {
         match self {
             Key::String(s) => surrealdb_types::RecordIdKey::String(s.clone()),
-            Key::Uuid(u) => {
-                surrealdb_types::RecordIdKey::Uuid(surrealdb_types::Uuid::from(*u))
-            },
+            Key::Uuid(u) => surrealdb_types::RecordIdKey::Uuid(surrealdb_types::Uuid::from(*u)),
             Key::Int(i) => surrealdb_types::RecordIdKey::Number(*i),
         }
     }
 }
 
-impl From<String> for Key { fn from(s: String) -> Self { Self::from_str(&s) } }
-impl From<&str> for Key { fn from(s: &str) -> Self { Self::from_str(s) } }
-impl From<Uuid> for Key { fn from(u: Uuid) -> Self { Self::Uuid(u) } }
-impl From<i64> for Key { fn from(i: i64) -> Self { Self::Int(i) } }
+impl From<String> for Key {
+    fn from(s: String) -> Self {
+        Self::from_str(&s)
+    }
+}
+impl From<&str> for Key {
+    fn from(s: &str) -> Self {
+        Self::from_str(s)
+    }
+}
+impl From<Uuid> for Key {
+    fn from(u: Uuid) -> Self {
+        Self::Uuid(u)
+    }
+}
+impl From<i64> for Key {
+    fn from(i: i64) -> Self {
+        Self::Int(i)
+    }
+}
 
 impl std::fmt::Display for Key {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -55,10 +73,15 @@ pub struct Thing<T: SurrealRecord> {
 
 impl<T: SurrealRecord> Thing<T> {
     pub fn new(key: impl Into<Key>) -> Self {
-        Self { key: key.into(), _marker: std::marker::PhantomData }
+        Self {
+            key: key.into(),
+            _marker: std::marker::PhantomData,
+        }
     }
 
-    pub fn table(&self) -> &'static str { T::table_name() }
+    pub fn table(&self) -> &'static str {
+        T::table_name()
+    }
 }
 
 impl<T: SurrealRecord> Serialize for Thing<T> {
@@ -70,12 +93,14 @@ impl<T: SurrealRecord> Serialize for Thing<T> {
 impl<'de, T: SurrealRecord> Deserialize<'de> for Thing<T> {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let raw: String = String::deserialize(d)?;
-        let (tb, id_part) = raw.split_once(':').ok_or_else(|| {
-            serde::de::Error::custom(format!("invalid record id: {raw}"))
-        })?;
+        let (tb, id_part) = raw
+            .split_once(':')
+            .ok_or_else(|| serde::de::Error::custom(format!("invalid record id: {raw}")))?;
         if tb != T::table_name() {
             return Err(serde::de::Error::custom(format!(
-                "expected record for '{}', got '{}'", T::table_name(), tb
+                "expected record for '{}', got '{}'",
+                T::table_name(),
+                tb
             )));
         }
         Ok(Thing::new(Key::from_str(id_part)))

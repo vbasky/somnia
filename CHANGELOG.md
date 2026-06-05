@@ -10,6 +10,23 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-05
+
+Release-engineering and metadata patch — no library API changes.
+
+### Changed
+
+- Corrected the declared minimum supported Rust version to **1.85** (was an
+  optimistic 1.75 — the SurrealDB 3.x dependency tree requires `edition2024`,
+  and `roaring` is built against it).
+- Fixed the `repository`/`homepage` URLs to `https://github.com/vbasky/somnia`.
+
+### Fixed
+
+- Green CI: applied `rustfmt`, and configured `cargo-deny` for the dependency
+  tree — scoped BUSL-1.1 exceptions for the SurrealDB crates and a documented
+  ignore for RUSTSEC-2023-0071 (transitive `rsa`, no upstream fix).
+
 ## [0.1.0] - 2026-06-05
 
 Initial release — a type-safe SurrealDB ORM for Rust.

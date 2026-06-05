@@ -19,7 +19,11 @@ use surrealdb::opt::auth::Root;
 use surrealdb::Surreal;
 
 #[derive(Parser)]
-#[command(name = "somnia", version, about = "Migration runner for the somnia SurrealDB ORM")]
+#[command(
+    name = "somnia",
+    version,
+    about = "Migration runner for the somnia SurrealDB ORM"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -81,10 +85,16 @@ async fn connect_db(c: &WithConn) -> Result<Surreal<Any>> {
     let db = connect(&c.endpoint)
         .await
         .with_context(|| format!("connecting to {}", c.endpoint))?;
-    db.signin(Root { username: c.user.clone(), password: c.pass.clone() })
+    db.signin(Root {
+        username: c.user.clone(),
+        password: c.pass.clone(),
+    })
+    .await
+    .context("signin")?;
+    db.use_ns(c.ns.clone())
+        .use_db(c.db.clone())
         .await
-        .context("signin")?;
-    db.use_ns(c.ns.clone()).use_db(c.db.clone()).await.context("use ns/db")?;
+        .context("use ns/db")?;
     Ok(db)
 }
 
@@ -151,7 +161,9 @@ async fn run_migration(cmd: MigrationCmd) -> Result<()> {
             std::fs::create_dir_all(&folder)?;
             std::fs::write(
                 folder.join("up.surql"),
-                format!("-- up: {name}\n-- Write idempotent SurrealQL (IF NOT EXISTS / UPSERT).\n\n"),
+                format!(
+                    "-- up: {name}\n-- Write idempotent SurrealQL (IF NOT EXISTS / UPSERT).\n\n"
+                ),
             )?;
             std::fs::write(
                 folder.join("down.surql"),

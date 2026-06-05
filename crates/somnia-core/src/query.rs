@@ -55,7 +55,11 @@ pub struct Table<T: SurrealRecord> {
 }
 
 impl<T: SurrealRecord> Table<T> {
-    pub fn new() -> Self { Self { _marker: std::marker::PhantomData } }
+    pub fn new() -> Self {
+        Self {
+            _marker: std::marker::PhantomData,
+        }
+    }
 
     pub fn select(self, _cols: crate::expr::ColumnSet<T>) -> Select<T> {
         Select::bare()
@@ -76,14 +80,27 @@ impl<T: SurrealRecord> Table<T> {
         s
     }
 
-    pub fn insert(self) -> Insert<T> { Insert { data: Vec::new(), return_fields: vec![] } }
-    pub fn create(self) -> Create<T> { Create::for_table() }
-    pub fn update(self) -> Update<T> { Update::for_table() }
-    pub fn delete(self) -> Delete<T> { Delete::for_table() }
+    pub fn insert(self) -> Insert<T> {
+        Insert {
+            data: Vec::new(),
+            return_fields: vec![],
+        }
+    }
+    pub fn create(self) -> Create<T> {
+        Create::for_table()
+    }
+    pub fn update(self) -> Update<T> {
+        Update::for_table()
+    }
+    pub fn delete(self) -> Delete<T> {
+        Delete::for_table()
+    }
 }
 
 impl<T: SurrealRecord> Default for Table<T> {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -121,34 +138,68 @@ impl<T: SurrealRecord> Select<T> {
         }
     }
 
-    pub fn filter(mut self, expr: impl DynExpr + 'static) -> Self { self.filter = Some(Box::new(expr)); self }
-    pub fn limit(mut self, n: u32) -> Self { self.limit = Some(n); self }
-    pub fn start(mut self, n: u32) -> Self { self.start = n; self }
-    pub fn fetch(mut self, field: &str) -> Self { self.fetch.push(field.to_string()); self }
+    pub fn filter(mut self, expr: impl DynExpr + 'static) -> Self {
+        self.filter = Some(Box::new(expr));
+        self
+    }
+    pub fn limit(mut self, n: u32) -> Self {
+        self.limit = Some(n);
+        self
+    }
+    pub fn start(mut self, n: u32) -> Self {
+        self.start = n;
+        self
+    }
+    pub fn fetch(mut self, field: &str) -> Self {
+        self.fetch.push(field.to_string());
+        self
+    }
     pub fn group_by<C: DynExpr>(mut self, col: C) -> Self {
-        let mut buf = String::new(); col.render_dyn(&mut buf); self.group_by.push(buf); self
+        let mut buf = String::new();
+        col.render_dyn(&mut buf);
+        self.group_by.push(buf);
+        self
     }
     /// `GROUP ALL` (whole-table aggregate, e.g. with `count()`).
-    pub fn group_all(mut self) -> Self { self.group_all = true; self }
+    pub fn group_all(mut self) -> Self {
+        self.group_all = true;
+        self
+    }
     /// Alias for the `count()` projection: `SELECT count() AS <alias>`.
-    pub fn count_as(mut self, alias: &'static str) -> Self { self.count = true; self.count_alias = Some(alias); self }
-
-    pub fn order_by<C: DynExpr>(mut self, col: C, dir: Order) -> Self {
-        let mut buf = String::new(); col.render_dyn(&mut buf); self.order.push((buf, dir)); self
+    pub fn count_as(mut self, alias: &'static str) -> Self {
+        self.count = true;
+        self.count_alias = Some(alias);
+        self
     }
 
-    pub fn order_asc<C: DynExpr>(self, col: C) -> Self { self.order_by(col, Order::Asc) }
-    pub fn order_desc<C: DynExpr>(self, col: C) -> Self { self.order_by(col, Order::Desc) }
+    pub fn order_by<C: DynExpr>(mut self, col: C, dir: Order) -> Self {
+        let mut buf = String::new();
+        col.render_dyn(&mut buf);
+        self.order.push((buf, dir));
+        self
+    }
+
+    pub fn order_asc<C: DynExpr>(self, col: C) -> Self {
+        self.order_by(col, Order::Asc)
+    }
+    pub fn order_desc<C: DynExpr>(self, col: C) -> Self {
+        self.order_by(col, Order::Desc)
+    }
 
     fn render_select_list(&self, q: &mut String) {
         if self.count {
             q.push_str("count()");
-            if let Some(a) = self.count_alias { q.push_str(" AS "); q.push_str(a); }
+            if let Some(a) = self.count_alias {
+                q.push_str(" AS ");
+                q.push_str(a);
+            }
         } else if self.projections.is_empty() {
             q.push('*');
         } else {
             for (i, p) in self.projections.iter().enumerate() {
-                if i > 0 { q.push_str(", "); }
+                if i > 0 {
+                    q.push_str(", ");
+                }
                 p.render(q);
             }
         }
@@ -159,19 +210,38 @@ impl<T: SurrealRecord> Select<T> {
         self.render_select_list(&mut q);
         q.push_str(" FROM ");
         q.push_str(T::table_name());
-        if let Some(ref f) = self.filter { q.push_str(" WHERE "); f.render_dyn(&mut q); }
+        if let Some(ref f) = self.filter {
+            q.push_str(" WHERE ");
+            f.render_dyn(&mut q);
+        }
         for (i, (col, dir)) in self.order.iter().enumerate() {
-            if i == 0 { q.push_str(" ORDER BY "); } else { q.push_str(", "); }
+            if i == 0 {
+                q.push_str(" ORDER BY ");
+            } else {
+                q.push_str(", ");
+            }
             q.push_str(&format!("{col} {dir}"));
         }
         for (i, g) in self.group_by.iter().enumerate() {
-            if i == 0 { q.push_str(" GROUP BY "); } else { q.push_str(", "); }
+            if i == 0 {
+                q.push_str(" GROUP BY ");
+            } else {
+                q.push_str(", ");
+            }
             q.push_str(g);
         }
-        if self.group_all { q.push_str(" GROUP ALL"); }
-        if self.start > 0 { q.push_str(&format!(" START {}", self.start)); }
-        if let Some(n) = self.limit { q.push_str(&format!(" LIMIT {n}")); }
-        for f in &self.fetch { q.push_str(&format!(" FETCH {f}")); }
+        if self.group_all {
+            q.push_str(" GROUP ALL");
+        }
+        if self.start > 0 {
+            q.push_str(&format!(" START {}", self.start));
+        }
+        if let Some(n) = self.limit {
+            q.push_str(&format!(" LIMIT {n}"));
+        }
+        for f in &self.fetch {
+            q.push_str(&format!(" FETCH {f}"));
+        }
         q
     }
 }
@@ -192,12 +262,24 @@ pub struct Insert<T: SurrealRecord> {
 }
 
 impl<T: SurrealRecord> Insert<T> {
-    pub fn content(mut self, record: T) -> Self { self.data.push(record); self }
-    pub fn return_field(mut self, field: &'static str) -> Self { self.return_fields.push(field); self }
-    pub fn data(&self) -> &[T] { &self.data }
+    pub fn content(mut self, record: T) -> Self {
+        self.data.push(record);
+        self
+    }
+    pub fn return_field(mut self, field: &'static str) -> Self {
+        self.return_fields.push(field);
+        self
+    }
+    pub fn data(&self) -> &[T] {
+        &self.data
+    }
 
     pub fn to_surrealql(&self) -> String {
-        let returning = if self.return_fields.is_empty() { "" } else { " RETURN AFTER" };
+        let returning = if self.return_fields.is_empty() {
+            ""
+        } else {
+            " RETURN AFTER"
+        };
         format!("INSERT INTO {} $data{}", T::table_name(), returning)
     }
 }
@@ -225,8 +307,13 @@ pub struct Update<T: SurrealRecord> {
 
 impl<T: SurrealRecord> Update<T> {
     pub(crate) fn for_table() -> Self {
-        Self { _marker: std::marker::PhantomData, target: Target::Table(T::table_name()),
-            filter: None, sets: Vec::new(), returning: Returning::None }
+        Self {
+            _marker: std::marker::PhantomData,
+            target: Target::Table(T::table_name()),
+            filter: None,
+            sets: Vec::new(),
+            returning: Returning::None,
+        }
     }
 
     /// Target a single record: `UPDATE type::record('table', <id>)`.
@@ -235,38 +322,55 @@ impl<T: SurrealRecord> Update<T> {
         self
     }
 
-    pub fn filter(mut self, expr: impl DynExpr + 'static) -> Self { self.filter = Some(Box::new(expr)); self }
+    pub fn filter(mut self, expr: impl DynExpr + 'static) -> Self {
+        self.filter = Some(Box::new(expr));
+        self
+    }
 
     /// `SET col = <literal>`.
     pub fn set<C: SurrealQL>(mut self, col: Column<T, C>, value: C) -> Self {
-        let mut buf = String::new(); C::render_literal(&value, &mut buf);
-        self.sets.push(SetVal::Assign(col.name.to_string(), buf)); self
+        let mut buf = String::new();
+        C::render_literal(&value, &mut buf);
+        self.sets.push(SetVal::Assign(col.name.to_string(), buf));
+        self
     }
     /// `SET col = <literal>` by raw column name.
     pub fn set_lit<C: SurrealQL>(mut self, col: &str, value: C) -> Self {
-        let mut buf = String::new(); C::render_literal(&value, &mut buf);
-        self.sets.push(SetVal::Assign(col.to_string(), buf)); self
+        let mut buf = String::new();
+        C::render_literal(&value, &mut buf);
+        self.sets.push(SetVal::Assign(col.to_string(), buf));
+        self
     }
     /// `SET col = <expr>` — e.g. a record link, `time::now()`, NONE, `use_count + 1`.
     pub fn set_expr(mut self, col: &str, expr: impl DynExpr) -> Self {
-        let mut buf = String::new(); expr.render_dyn(&mut buf);
-        self.sets.push(SetVal::Assign(col.to_string(), buf)); self
+        let mut buf = String::new();
+        expr.render_dyn(&mut buf);
+        self.sets.push(SetVal::Assign(col.to_string(), buf));
+        self
     }
     /// `SET col = <raw SurrealQL>`.
     pub fn set_raw(mut self, col: &str, raw: impl Into<String>) -> Self {
-        self.sets.push(SetVal::Assign(col.to_string(), raw.into())); self
+        self.sets.push(SetVal::Assign(col.to_string(), raw.into()));
+        self
     }
     /// `MERGE <expr>` — deep-merge the given object into the record.
     pub fn merge(mut self, expr: impl DynExpr) -> Self {
-        let mut buf = String::new(); expr.render_dyn(&mut buf);
-        self.sets.push(SetVal::Merge(buf)); self
+        let mut buf = String::new();
+        expr.render_dyn(&mut buf);
+        self.sets.push(SetVal::Merge(buf));
+        self
     }
     /// `CONTENT <expr>` — full-replace the record's content (upsert by record id).
     pub fn content(mut self, expr: impl DynExpr) -> Self {
-        let mut buf = String::new(); expr.render_dyn(&mut buf);
-        self.sets.push(SetVal::Content(buf)); self
+        let mut buf = String::new();
+        expr.render_dyn(&mut buf);
+        self.sets.push(SetVal::Content(buf));
+        self
     }
-    pub fn returning(mut self, r: Returning) -> Self { self.returning = r; self }
+    pub fn returning(mut self, r: Returning) -> Self {
+        self.returning = r;
+        self
+    }
 
     pub fn to_surrealql(&self) -> String {
         let mut q = String::from("UPDATE ");
@@ -292,7 +396,10 @@ impl<T: SurrealRecord> Update<T> {
             q.push_str(" SET ");
             q.push_str(&set_pairs.join(", "));
         }
-        if let Some(ref f) = self.filter { q.push_str(" WHERE "); f.render_dyn(&mut q); }
+        if let Some(ref f) = self.filter {
+            q.push_str(" WHERE ");
+            f.render_dyn(&mut q);
+        }
         self.returning.render(&mut q);
         q
     }
@@ -325,8 +432,12 @@ pub struct Create<T: SurrealRecord> {
 
 impl<T: SurrealRecord> Create<T> {
     pub(crate) fn for_table() -> Self {
-        Self { _marker: std::marker::PhantomData, target: Target::Table(T::table_name()),
-            body: CreateBody::Set(Vec::new()), returning: Returning::None }
+        Self {
+            _marker: std::marker::PhantomData,
+            target: Target::Table(T::table_name()),
+            body: CreateBody::Set(Vec::new()),
+            returning: Returning::None,
+        }
     }
 
     /// Target a single record id: `CREATE type::record('table', <id>)`.
@@ -337,23 +448,30 @@ impl<T: SurrealRecord> Create<T> {
 
     /// `CONTENT <expr>` — replaces any accumulated SET pairs.
     pub fn content(mut self, expr: impl DynExpr) -> Self {
-        let mut buf = String::new(); expr.render_dyn(&mut buf);
-        self.body = CreateBody::Content(buf); self
+        let mut buf = String::new();
+        expr.render_dyn(&mut buf);
+        self.body = CreateBody::Content(buf);
+        self
     }
 
     /// `SET col = <literal>`.
     pub fn set_lit<C: SurrealQL>(mut self, col: &str, value: C) -> Self {
-        let mut buf = String::new(); C::render_literal(&value, &mut buf);
-        self.push_set(col, buf); self
+        let mut buf = String::new();
+        C::render_literal(&value, &mut buf);
+        self.push_set(col, buf);
+        self
     }
     /// `SET col = <expr>`.
     pub fn set_expr(mut self, col: &str, expr: impl DynExpr) -> Self {
-        let mut buf = String::new(); expr.render_dyn(&mut buf);
-        self.push_set(col, buf); self
+        let mut buf = String::new();
+        expr.render_dyn(&mut buf);
+        self.push_set(col, buf);
+        self
     }
     /// `SET col = <raw SurrealQL>`.
     pub fn set_raw(mut self, col: &str, raw: impl Into<String>) -> Self {
-        self.push_set(col, raw.into()); self
+        self.push_set(col, raw.into());
+        self
     }
 
     fn push_set(&mut self, col: &str, rendered: String) {
@@ -365,16 +483,28 @@ impl<T: SurrealRecord> Create<T> {
         }
     }
 
-    pub fn returning(mut self, r: Returning) -> Self { self.returning = r; self }
+    pub fn returning(mut self, r: Returning) -> Self {
+        self.returning = r;
+        self
+    }
 
     pub fn to_surrealql(&self) -> String {
         let mut q = String::from("CREATE ");
         self.target.render(&mut q);
         match &self.body {
-            CreateBody::Content(c) => { q.push_str(" CONTENT "); q.push_str(c); }
+            CreateBody::Content(c) => {
+                q.push_str(" CONTENT ");
+                q.push_str(c);
+            }
             CreateBody::Set(pairs) if !pairs.is_empty() => {
                 q.push_str(" SET ");
-                q.push_str(&pairs.iter().map(|(k, v)| format!("{k} = {v}")).collect::<Vec<_>>().join(", "));
+                q.push_str(
+                    &pairs
+                        .iter()
+                        .map(|(k, v)| format!("{k} = {v}"))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
             }
             CreateBody::Set(_) => {}
         }
@@ -402,20 +532,33 @@ pub struct Delete<T: SurrealRecord> {
 
 impl<T: SurrealRecord> Delete<T> {
     pub(crate) fn for_table() -> Self {
-        Self { _marker: std::marker::PhantomData, target: Target::Table(T::table_name()),
-            filter: None, returning: Returning::None }
+        Self {
+            _marker: std::marker::PhantomData,
+            target: Target::Table(T::table_name()),
+            filter: None,
+            returning: Returning::None,
+        }
     }
     /// Target a single record: `DELETE type::record('table', <id>)`.
     pub fn record<V: SurrealQL>(mut self, id: V) -> Self {
         self.target = Target::Record(RecordLink::new(T::table_name(), id));
         self
     }
-    pub fn filter(mut self, expr: impl DynExpr + 'static) -> Self { self.filter = Some(Box::new(expr)); self }
-    pub fn returning(mut self, r: Returning) -> Self { self.returning = r; self }
+    pub fn filter(mut self, expr: impl DynExpr + 'static) -> Self {
+        self.filter = Some(Box::new(expr));
+        self
+    }
+    pub fn returning(mut self, r: Returning) -> Self {
+        self.returning = r;
+        self
+    }
     pub fn to_surrealql(&self) -> String {
         let mut q = String::from("DELETE ");
         self.target.render(&mut q);
-        if let Some(ref f) = self.filter { q.push_str(" WHERE "); f.render_dyn(&mut q); }
+        if let Some(ref f) = self.filter {
+            q.push_str(" WHERE ");
+            f.render_dyn(&mut q);
+        }
         self.returning.render(&mut q);
         q
     }
@@ -439,16 +582,25 @@ pub struct Batch {
 }
 
 impl Batch {
-    pub fn new() -> Self { Self { statements: Vec::new() } }
+    pub fn new() -> Self {
+        Self {
+            statements: Vec::new(),
+        }
+    }
     pub fn push(mut self, stmt: impl ToString) -> Self {
-        self.statements.push(stmt.to_string()); self
+        self.statements.push(stmt.to_string());
+        self
     }
     pub fn to_surrealql(&self) -> String {
         self.statements.join(";\n")
     }
     /// Number of statements (useful for `.take(n)` indexing on the response).
-    pub fn len(&self) -> usize { self.statements.len() }
-    pub fn is_empty(&self) -> bool { self.statements.is_empty() }
+    pub fn len(&self) -> usize {
+        self.statements.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.statements.is_empty()
+    }
 }
 
 impl std::fmt::Display for Batch {
@@ -466,19 +618,31 @@ pub struct Relate<E: SurrealEdge> {
 }
 
 impl<E: SurrealEdge> Relate<E> {
-    pub fn new() -> Self { Self { _marker: std::marker::PhantomData } }
+    pub fn new() -> Self {
+        Self {
+            _marker: std::marker::PhantomData,
+        }
+    }
 
     pub fn to_surrealql(
         from: &Thing<impl SurrealRecord>,
         to: &Thing<impl SurrealRecord>,
     ) -> String {
-        format!("RELATE {}:{} -> {} -> {}:{}",
-            from.table(), from.key, E::edge_name(), to.table(), to.key)
+        format!(
+            "RELATE {}:{} -> {} -> {}:{}",
+            from.table(),
+            from.key,
+            E::edge_name(),
+            to.table(),
+            to.key
+        )
     }
 }
 
 impl<E: SurrealEdge> Default for Relate<E> {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -499,25 +663,37 @@ pub struct RelateEdge<E: SurrealEdge> {
 
 impl<E: SurrealEdge> RelateEdge<E> {
     pub fn from(from: &Thing<impl SurrealRecord>) -> Self {
-        Self { _marker: std::marker::PhantomData,
+        Self {
+            _marker: std::marker::PhantomData,
             from_label: format!("{}:{}", from.table(), from.key),
-            to_label: String::new(), content_json: None }
+            to_label: String::new(),
+            content_json: None,
+        }
     }
 
     pub fn to(mut self, to: &Thing<impl SurrealRecord>) -> Self {
-        self.to_label = format!("{}:{}", to.table(), to.key); self
+        self.to_label = format!("{}:{}", to.table(), to.key);
+        self
     }
 
     /// Attach content to the edge record.
     pub fn content(mut self, edge: &impl serde::Serialize) -> Self {
-        self.content_json = serde_json::to_value(edge).ok(); self
+        self.content_json = serde_json::to_value(edge).ok();
+        self
     }
 
     pub fn build(&self) -> String {
-        let mut q = format!("RELATE {} -> {} -> {}",
-            self.from_label, E::edge_name(), self.to_label);
+        let mut q = format!(
+            "RELATE {} -> {} -> {}",
+            self.from_label,
+            E::edge_name(),
+            self.to_label
+        );
         if let Some(ref c) = self.content_json {
-            q.push_str(&format!(" CONTENT {}", serde_json::to_string(c).unwrap_or_default()));
+            q.push_str(&format!(
+                " CONTENT {}",
+                serde_json::to_string(c).unwrap_or_default()
+            ));
         }
         q
     }

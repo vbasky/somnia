@@ -24,12 +24,16 @@ pub fn derive_surreal_record(input: TokenStream) -> TokenStream {
 
     for field in fields {
         let field_name = field.ident.as_ref().unwrap();
-        let db_name = find_field_attr(&field.attrs, "name")
-            .unwrap_or_else(|| field_name.to_string());
+        let db_name =
+            find_field_attr(&field.attrs, "name").unwrap_or_else(|| field_name.to_string());
         let is_thing = has_field_attr(&field.attrs, "thing");
         let is_skip = has_field_attr(&field.attrs, "skip");
-        if is_skip { continue; }
-        if is_thing { primary = db_name.clone(); }
+        if is_skip {
+            continue;
+        }
+        if is_thing {
+            primary = db_name.clone();
+        }
 
         let ty = &field.ty;
         let surreal_type = type_to_surreal(ty);
@@ -63,14 +67,21 @@ pub fn derive_surreal_record(input: TokenStream) -> TokenStream {
     }).collect();
 
     // ColumnSet::all()
-    let all_metas: Vec<_> = field_defs.iter().map(|f| {
-        let db = &f.db_name;
-        let st = &f.surreal_type;
-        quote! { ::somnia_core::ColumnMeta { name: #db, surreal_type: #st } }
-    }).collect();
+    let all_metas: Vec<_> = field_defs
+        .iter()
+        .map(|f| {
+            let db = &f.db_name;
+            let st = &f.surreal_type;
+            quote! { ::somnia_core::ColumnMeta { name: #db, surreal_type: #st } }
+        })
+        .collect();
 
     // ─── Schema DDL (the Rust type is the source of truth) ──────────────────────
-    let schemafull = if table.schemaless { "SCHEMALESS" } else { "SCHEMAFULL" };
+    let schemafull = if table.schemaless {
+        "SCHEMALESS"
+    } else {
+        "SCHEMAFULL"
+    };
     let table_ddl = format!(
         "DEFINE TABLE IF NOT EXISTS {table_name} {schemafull} PERMISSIONS {};",
         table.permissions,
@@ -146,7 +157,11 @@ struct TableAttr {
 
 impl TableAttr {
     fn named(name: String) -> Self {
-        Self { name, schemaless: false, permissions: "FULL".to_string() }
+        Self {
+            name,
+            schemaless: false,
+            permissions: "FULL".to_string(),
+        }
     }
 }
 
@@ -154,8 +169,12 @@ impl TableAttr {
 fn parse_table_attr(attrs: &[syn::Attribute]) -> Option<TableAttr> {
     use syn::parse::ParseStream;
     for attr in attrs {
-        if !attr.path().is_ident("table") { continue; }
-        let Meta::List(ml) = &attr.meta else { continue; };
+        if !attr.path().is_ident("table") {
+            continue;
+        }
+        let Meta::List(ml) = &attr.meta else {
+            continue;
+        };
         let parsed = ml.parse_args_with(|input: ParseStream| {
             let mut t = TableAttr::named(String::new());
             // Optional leading bare string literal → table name.
@@ -167,7 +186,9 @@ fn parse_table_attr(attrs: &[syn::Attribute]) -> Option<TableAttr> {
                 if input.peek(syn::Token![,]) {
                     let _: syn::Token![,] = input.parse()?;
                 }
-                if input.is_empty() { break; }
+                if input.is_empty() {
+                    break;
+                }
                 let ident: syn::Ident = input.parse()?;
                 if ident == "schemaless" {
                     t.schemaless = true;
@@ -176,13 +197,19 @@ fn parse_table_attr(attrs: &[syn::Attribute]) -> Option<TableAttr> {
                 } else if ident == "permissions" || ident == "name" {
                     let _: syn::Token![=] = input.parse()?;
                     let val: syn::LitStr = input.parse()?;
-                    if ident == "permissions" { t.permissions = val.value(); } else { t.name = val.value(); }
+                    if ident == "permissions" {
+                        t.permissions = val.value();
+                    } else {
+                        t.name = val.value();
+                    }
                 }
             }
             Ok(t)
         });
         if let Ok(t) = parsed {
-            if !t.name.is_empty() { return Some(t); }
+            if !t.name.is_empty() {
+                return Some(t);
+            }
         }
     }
     None
@@ -192,13 +219,16 @@ fn find_field_attr(attrs: &[syn::Attribute], key: &str) -> Option<String> {
     for attr in attrs {
         if attr.path().is_ident("field") {
             if let Meta::List(ml) = &attr.meta {
-                let nested: syn::punctuated::Punctuated<syn::Meta, syn::Token![,]> =
-                    ml.parse_args_with(syn::punctuated::Punctuated::parse_terminated).ok()?;
+                let nested: syn::punctuated::Punctuated<syn::Meta, syn::Token![,]> = ml
+                    .parse_args_with(syn::punctuated::Punctuated::parse_terminated)
+                    .ok()?;
                 for meta in nested {
                     if let syn::Meta::NameValue(nv) = meta {
                         if nv.path.is_ident(key) {
                             if let syn::Expr::Lit(lit) = &nv.value {
-                                if let syn::Lit::Str(s) = &lit.lit { return Some(s.value()); }
+                                if let syn::Lit::Str(s) = &lit.lit {
+                                    return Some(s.value());
+                                }
                             }
                         }
                     }
@@ -215,9 +245,14 @@ fn has_field_attr(attrs: &[syn::Attribute], key: &str) -> bool {
             if let Meta::List(ml) = &attr.meta {
                 let nested: syn::punctuated::Punctuated<syn::Meta, syn::Token![,]> =
                     match ml.parse_args_with(syn::punctuated::Punctuated::parse_terminated) {
-                        Ok(n) => n, Err(_) => continue,
+                        Ok(n) => n,
+                        Err(_) => continue,
                     };
-                for meta in nested { if meta.path().is_ident(key) { return true; } }
+                for meta in nested {
+                    if meta.path().is_ident(key) {
+                        return true;
+                    }
+                }
             }
         }
     }
@@ -227,17 +262,55 @@ fn has_field_attr(attrs: &[syn::Attribute], key: &str) -> bool {
 /// SurrealQL type for a typed-column accessor (used by the query builder).
 fn type_to_surreal(ty: &syn::Type) -> String {
     let s = quote!(#ty).to_string();
-    if s.contains("String") && !s.contains("Option") { return "string".into(); }
-    if s.contains("String") && s.contains("Option") { return "option<string>".into(); }
-    if s.contains("i64") { return if s.contains("Option") { "option<int>".into() } else { "int".into() }; }
-    if s.contains("i32") { return if s.contains("Option") { "option<int>".into() } else { "int".into() }; }
-    if s.contains("f64") { return if s.contains("Option") { "option<float>".into() } else { "float".into() }; }
-    if s.contains("bool") { return if s.contains("Option") { "option<bool>".into() } else { "bool".into() }; }
-    if s.contains("DateTime") || s.contains("Utc") { return "datetime".into(); }
-    if s.contains("Uuid") { return "uuid".into(); }
-    if s.contains("Thing") { return "record".into(); }
-    if s.contains("Vec") || s.contains("Array") { return "array".into(); }
-    if s.contains("HashMap") || s.contains("BTreeMap") { return "object".into(); }
+    if s.contains("String") && !s.contains("Option") {
+        return "string".into();
+    }
+    if s.contains("String") && s.contains("Option") {
+        return "option<string>".into();
+    }
+    if s.contains("i64") {
+        return if s.contains("Option") {
+            "option<int>".into()
+        } else {
+            "int".into()
+        };
+    }
+    if s.contains("i32") {
+        return if s.contains("Option") {
+            "option<int>".into()
+        } else {
+            "int".into()
+        };
+    }
+    if s.contains("f64") {
+        return if s.contains("Option") {
+            "option<float>".into()
+        } else {
+            "float".into()
+        };
+    }
+    if s.contains("bool") {
+        return if s.contains("Option") {
+            "option<bool>".into()
+        } else {
+            "bool".into()
+        };
+    }
+    if s.contains("DateTime") || s.contains("Utc") {
+        return "datetime".into();
+    }
+    if s.contains("Uuid") {
+        return "uuid".into();
+    }
+    if s.contains("Thing") {
+        return "record".into();
+    }
+    if s.contains("Vec") || s.contains("Array") {
+        return "array".into();
+    }
+    if s.contains("HashMap") || s.contains("BTreeMap") {
+        return "object".into();
+    }
     "object".into()
 }
 
@@ -251,23 +324,49 @@ fn schema_type(ty: &syn::Type, record: Option<&str>, _flexible: bool) -> String 
     } else {
         base_surreal_type(&s).to_string()
     };
-    if is_opt { format!("option<{inner}>") } else { inner }
+    if is_opt {
+        format!("option<{inner}>")
+    } else {
+        inner
+    }
 }
 
 /// Base SurrealQL scalar/compound type, ignoring any `Option<…>` wrapper.
 fn base_surreal_type(s: &str) -> &'static str {
-    if s.contains("String") { return "string"; }
-    if s.contains("Uuid") { return "uuid"; }
-    if s.contains("DateTime") || s.contains("Utc") { return "datetime"; }
-    if s.contains("bool") { return "bool"; }
-    if s.contains("f64") || s.contains("f32") { return "float"; }
-    if s.contains("i8") || s.contains("i16") || s.contains("i32") || s.contains("i64")
-        || s.contains("u8") || s.contains("u16") || s.contains("u32") || s.contains("u64")
-        || s.contains("usize") || s.contains("isize") {
+    if s.contains("String") {
+        return "string";
+    }
+    if s.contains("Uuid") {
+        return "uuid";
+    }
+    if s.contains("DateTime") || s.contains("Utc") {
+        return "datetime";
+    }
+    if s.contains("bool") {
+        return "bool";
+    }
+    if s.contains("f64") || s.contains("f32") {
+        return "float";
+    }
+    if s.contains("i8")
+        || s.contains("i16")
+        || s.contains("i32")
+        || s.contains("i64")
+        || s.contains("u8")
+        || s.contains("u16")
+        || s.contains("u32")
+        || s.contains("u64")
+        || s.contains("usize")
+        || s.contains("isize")
+    {
         return "int";
     }
-    if s.contains("Thing") { return "record"; }
-    if s.contains("Vec") || s.contains("Array") { return "array"; }
+    if s.contains("Thing") {
+        return "record";
+    }
+    if s.contains("Vec") || s.contains("Array") {
+        return "array";
+    }
     // serde_json::Value, HashMap/BTreeMap, and anything unrecognized → object.
     "object"
 }

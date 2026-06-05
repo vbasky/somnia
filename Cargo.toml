@@ -3,12 +3,12 @@ resolver = "2"
 members = ["crates/somnia-core", "crates/somnia-derive", "crates/somnia", "crates/somnia-cli"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 authors = ["Vikram Bhaskaran <vikram.bhaskaran@outlook.com>"]
-repository = "https://github.com/vbhaskaran/somnia"
-homepage = "https://github.com/vbhaskaran/somnia"
+repository = "https://github.com/vbasky/somnia"
+homepage = "https://github.com/vbasky/somnia"
 keywords = ["surrealdb", "orm", "query-builder", "database", "surrealql"]
 categories = ["database", "database-implementations"]

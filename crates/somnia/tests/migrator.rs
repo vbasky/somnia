@@ -22,7 +22,11 @@ mod tests {
 
         // Apply everything.
         let applied = migrator.run().await.unwrap();
-        assert_eq!(applied.len(), 3, "all migrations should apply on a fresh DB");
+        assert_eq!(
+            applied.len(),
+            3,
+            "all migrations should apply on a fresh DB"
+        );
 
         // The seed ran, so the row exists.
         let mut res = db.query("SELECT name FROM widget:one;").await.unwrap();

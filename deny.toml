@@ -7,12 +7,19 @@ yanked = "deny"
 # Scope unmaintained-crate checks to direct workspace dependencies (actionable),
 # rather than failing on deep transitive crates we don't control.
 unmaintained = "workspace"
-ignore = []
+ignore = [
+    # RUSTSEC-2023-0071 — "Marvin Attack" RSA timing sidechannel in `rsa`.
+    # Transitive only: rsa <- jsonwebtoken <- surrealdb-core <- surrealdb. There
+    # is no patched release of `rsa`, and the path is internal to SurrealDB's JWT
+    # auth, which somnia cannot remove. Re-evaluate when `rsa` ships a fix or
+    # SurrealDB drops the dependency.
+    "RUSTSEC-2023-0071",
+]
 
 [licenses]
 version = 2
-# somnia itself is "MIT OR Apache-2.0"; this is the set permitted across the
-# dependency tree.
+# somnia itself is "MIT OR Apache-2.0"; this is the set of permissive licenses
+# permitted across the dependency tree.
 allow = [
     "MIT",
     "Apache-2.0",
@@ -21,10 +28,28 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "Unicode-3.0",
+    "Unlicense",
     "Zlib",
     "MPL-2.0",
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8
+
+# The SurrealDB crates are licensed BUSL-1.1 (Business Source License) — source-
+# available, not OSI-approved. Using them as a library dependency is permitted
+# under the BUSL; somnia's own code remains MIT OR Apache-2.0. These exceptions
+# scope the BUSL acceptance to exactly the SurrealDB backend crates rather than
+# allowing BUSL globally. A new SurrealDB sub-crate will (intentionally) fail CI
+# here until reviewed and added.
+exceptions = [
+    { name = "surrealdb", allow = ["BUSL-1.1"] },
+    { name = "surrealdb-core", allow = ["BUSL-1.1"] },
+    { name = "surrealdb-collections", allow = ["BUSL-1.1"] },
+    { name = "surrealdb-protocol", allow = ["BUSL-1.1"] },
+    { name = "surrealdb-strand", allow = ["BUSL-1.1"] },
+    { name = "surrealdb-types", allow = ["BUSL-1.1"] },
+    { name = "surrealdb-types-derive", allow = ["BUSL-1.1"] },
+]
 
 [bans]
 multiple-versions = "warn"

@@ -65,7 +65,10 @@ DEFINE FIELD IF NOT EXISTS created_at ON TABLE asset_version TYPE datetime DEFAU
 
     #[test]
     fn down_drops_the_table() {
-        assert_eq!(AssetVersion::down(), "REMOVE TABLE IF EXISTS asset_version;");
+        assert_eq!(
+            AssetVersion::down(),
+            "REMOVE TABLE IF EXISTS asset_version;"
+        );
     }
 
     #[test]
@@ -111,7 +114,11 @@ DEFINE FIELD IF NOT EXISTS created_at ON TABLE asset_version TYPE datetime DEFAU
 
             // down: drop the table. Selecting from the now-removed SCHEMAFULL
             // table errors with "table does not exist" — proving the reversal.
-            db.query(AssetVersion::down()).await.unwrap().check().unwrap();
+            db.query(AssetVersion::down())
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
             let res = db.query("SELECT * FROM asset_version;").await.unwrap();
             assert!(res.check().is_err(), "table should not exist after down()");
 
