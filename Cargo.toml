@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["crates/somnia-core", "crates/somnia-derive", "crates/somnia"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+authors = ["Vikram Bhaskaran <vikram.bhaskaran@outlook.com>"]
+repository = "https://github.com/vbhaskaran/somnia"
+homepage = "https://github.com/vbhaskaran/somnia"
+keywords = ["surrealdb", "orm", "query-builder", "database", "surrealql"]
+categories = ["database", "database-implementations"]
