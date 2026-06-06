@@ -10,6 +10,13 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-06-06
+
+### Changed
+
+- **README** — bumped version strings and badge references from `0.3` to `0.4`;
+  added `then_select` usage example. (crates.io README was stale in 0.4.0.)
+
 ## [0.4.0] - 2026-06-06
 
 ### Added
