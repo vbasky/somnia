@@ -86,6 +86,14 @@ let create = Post::table()
     .returning(Returning::After)
     .to_surrealql();
 
+// UPSERT — update the record if it exists, otherwise create it
+let upserted = Post::table()
+    .upsert()
+    .record("post-1".to_string())
+    .set_lit("title", "Hello again".to_string())
+    .returning(Returning::After)
+    .to_surrealql();
+
 // CREATE then SELECT back with typed projections
 let batch = Post::table()
     .create()

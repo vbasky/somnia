@@ -92,6 +92,12 @@ impl<T: SurrealRecord> Table<T> {
     pub fn update(self) -> Update<T> {
         Update::for_table()
     }
+    /// `UPSERT` — update the matching record, or create it if it doesn't exist.
+    /// Same builder surface as [`update`](Self::update) (`record`/`set`/`merge`/
+    /// `content`/`filter`/`returning`/`then_select`).
+    pub fn upsert(self) -> Update<T> {
+        Update::for_upsert()
+    }
     pub fn delete(self) -> Delete<T> {
         Delete::for_table()
     }
@@ -310,6 +316,7 @@ enum SetVal {
 
 pub struct Update<T: SurrealRecord> {
     _marker: std::marker::PhantomData<T>,
+    verb: &'static str,
     target: Target,
     filter: Option<Box<dyn DynExpr>>,
     sets: Vec<SetVal>,
@@ -318,8 +325,19 @@ pub struct Update<T: SurrealRecord> {
 
 impl<T: SurrealRecord> Update<T> {
     pub(crate) fn for_table() -> Self {
+        Self::with_verb("UPDATE")
+    }
+
+    /// An `UPSERT` statement — same builder surface as `UPDATE`, but creates the
+    /// record if it doesn't exist. Built via [`Table::upsert`].
+    pub(crate) fn for_upsert() -> Self {
+        Self::with_verb("UPSERT")
+    }
+
+    fn with_verb(verb: &'static str) -> Self {
         Self {
             _marker: std::marker::PhantomData,
+            verb,
             target: Target::Table(T::table_name()),
             filter: None,
             sets: Vec::new(),
@@ -390,7 +408,8 @@ impl<T: SurrealRecord> Update<T> {
     }
 
     pub fn to_surrealql(&self) -> String {
-        let mut q = String::from("UPDATE ");
+        let mut q = String::from(self.verb);
+        q.push(' ');
         self.target.render(&mut q);
         // SurrealQL order: SET/MERGE/CONTENT first, then WHERE, then RETURN.
         let mut set_pairs = Vec::new();

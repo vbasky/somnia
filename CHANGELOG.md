@@ -12,14 +12,21 @@ notes, so keep this format intact.
 
 ## [0.4.1] - 2026-06-06
 
-### Changed
+### Added (0.4.1)
+
+- **`UPSERT` support** — `Table::upsert()` builds an `UPSERT` statement (update the
+  matching record, or create it if it doesn't exist) with the same builder surface
+  as `update()`: `record`/`set`/`set_lit`/`set_expr`/`merge`/`content`/`filter`/
+  `returning`/`then_select`.
+
+### Changed (0.4.1)
 
 - **README** — bumped version strings and badge references from `0.3` to `0.4`;
   added `then_select` usage example. (crates.io README was stale in 0.4.0.)
 
 ## [0.4.0] - 2026-06-06
 
-### Added
+### Added (0.4.0)
 
 - **`then_select` on `CREATE`/`UPDATE`/`DELETE`** — replaces the manual
   `Batch::new().push(mut).push(select).to_surrealql()` pattern with a single
@@ -41,7 +48,7 @@ notes, so keep this format intact.
 The P0 correctness fixes from the [roadmap](ROADMAP.md). Two are **breaking** at
 the serialization/type-bound level, hence the minor bump.
 
-### Fixed
+### Fixed (0.3.0)
 
 - **Record-id key escaping** — `Thing` literals and `RELATE` now backtick-quote
   UUID and non-identifier string keys (e.g. `asset:` `` `0190a-…` ``), so they
@@ -51,7 +58,7 @@ the serialization/type-bound level, hence the minor bump.
   record(s) as object literals (`INSERT INTO t { … }` / `[ … ]`) instead of an
   unbound `$data` placeholder that never resolved.
 
-### Changed
+### Changed (0.3.0)
 
 - **(Breaking) Geometry is GeoJSON** — `Point`/`LineString`/`Polygon` now
   serialize/deserialize as GeoJSON objects (`{ "type", "coordinates" }`) instead
@@ -61,7 +68,7 @@ the serialization/type-bound level, hence the minor bump.
 - **(Breaking) `Insert::to_surrealql` now requires `T: Serialize`** (it
   serializes the record inline).
 
-### Added
+### Added (0.3.0)
 
 - **Homebrew tap** — releases now publish a formula to `vbasky/homebrew-somnia`
   (`brew tap vbasky/somnia && brew install somnia`).

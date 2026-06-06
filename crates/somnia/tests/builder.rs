@@ -317,4 +317,32 @@ mod tests {
             r#"INSERT INTO system_settings {"id":"system_settings:k1","key":"theme","value":null}"#
         );
     }
+
+    #[test]
+    fn upsert_renders_upsert_keyword() {
+        // UPSERT: update the record, or create it if absent. Same builder as UPDATE.
+        let sql = SystemSetting::table()
+            .upsert()
+            .record("k1".to_string())
+            .set_lit("key", "theme".to_string())
+            .returning(Returning::After)
+            .to_surrealql();
+        assert_eq!(
+            sql,
+            "UPSERT type::record('system_settings', 'k1') SET key = 'theme' RETURN AFTER"
+        );
+    }
+
+    #[test]
+    fn upsert_table_with_filter_and_merge() {
+        let sql = SystemSetting::table()
+            .upsert()
+            .merge(Raw("{ enabled: true }".into()))
+            .filter(ident("key").eq("theme".to_string()))
+            .to_surrealql();
+        assert_eq!(
+            sql,
+            "UPSERT system_settings MERGE { enabled: true } WHERE key = 'theme'"
+        );
+    }
 }
