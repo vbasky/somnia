@@ -11,6 +11,8 @@ pub struct SomniaClient {
 }
 
 impl SomniaClient {
+    /// Connect to a SurrealDB `endpoint` (e.g. `ws://localhost:8000`), sign in with
+    /// root credentials, and select the namespace `ns` and database `db`.
     pub async fn connect(
         endpoint: &str,
         user: &str,
@@ -36,6 +38,8 @@ impl SomniaClient {
         Ok(Self { inner: surreal })
     }
 
+    /// Run a SurrealQL statement (typically a builder's `to_surrealql()`) and
+    /// deserialize the first result set into `Vec<T>`.
     pub async fn query<T>(&self, q: &(impl ToString + ?Sized)) -> Result<Vec<T>, SomniaError>
     where
         T: SurrealRecord + serde::de::DeserializeOwned,
@@ -57,6 +61,8 @@ impl SomniaClient {
             .collect::<Result<Vec<T>, SomniaError>>()
     }
 
+    /// Execute an [`Insert`](somnia_core::query::Insert), binding each queued
+    /// record as `$data`, and return the created rows.
     pub async fn insert<T>(
         &self,
         insert: &somnia_core::query::Insert<T>,
@@ -83,6 +89,7 @@ impl SomniaClient {
         Ok(results)
     }
 
+    /// Execute an [`Update`](somnia_core::query::Update) and return the affected rows.
     pub async fn update<T>(
         &self,
         update: &somnia_core::query::Update<T>,
@@ -106,6 +113,7 @@ impl SomniaClient {
             .collect::<Result<Vec<T>, SomniaError>>()
     }
 
+    /// Execute a [`Delete`](somnia_core::query::Delete).
     pub async fn delete<T>(&self, delete: &somnia_core::query::Delete<T>) -> Result<(), SomniaError>
     where
         T: SurrealRecord,
@@ -124,6 +132,8 @@ impl SomniaClient {
         crate::migrate::Migrator::new(self.inner.clone(), dir)
     }
 
+    /// Run raw SurrealQL and return the first result set as untyped JSON values —
+    /// the escape hatch for statements the typed helpers don't cover.
     pub async fn raw(&self, surql: &str) -> Result<Vec<serde_json::Value>, SomniaError> {
         let mut res = self
             .inner

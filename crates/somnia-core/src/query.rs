@@ -1,3 +1,18 @@
+//! SurrealQL statement builders.
+//!
+//! Each builder is reached from [`Table`] (itself produced by the derived
+//! `Type::table()`) and rendered to a string with `to_surrealql()`:
+//!
+//! - [`Select`] — `SELECT … FROM …`
+//! - [`Create`] — `CREATE …`
+//! - [`Insert`] — `INSERT INTO …`
+//! - [`Update`] — `UPDATE …` (and `UPSERT …` via [`Table::upsert`])
+//! - [`Delete`] — `DELETE …`
+//! - [`Relate`] / [`RelateEdge`] — `RELATE a -> edge -> b`
+//! - [`Batch`] — several statements joined with `;`
+//!
+//! Mutations also offer `then_select(...)` to chain a reselect as a batch.
+
 use crate::{
     expr::{Column, DynExpr, Order, Projection, RecordLink, SurrealQL},
     types::{SurrealEdge, SurrealRecord, Thing},
@@ -50,17 +65,21 @@ impl Target {
 // Table
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/// Entry point to the query builder for a record type `T` — the value returned by
+/// the derived `T::table()`. Each method starts a statement builder.
 pub struct Table<T: SurrealRecord> {
     _marker: std::marker::PhantomData<T>,
 }
 
 impl<T: SurrealRecord> Table<T> {
+    /// Create a `Table` builder. Prefer the derived `T::table()`.
     pub fn new() -> Self {
         Self {
             _marker: std::marker::PhantomData,
         }
     }
 
+    /// Begin a `SELECT * FROM <table>` (pass the derived `T::all()`).
     pub fn select(self, _cols: crate::expr::ColumnSet<T>) -> Select<T> {
         Select::bare()
     }
@@ -72,7 +91,7 @@ impl<T: SurrealRecord> Table<T> {
         s
     }
 
-    /// `SELECT count() FROM table GROUP ALL`
+    /// `SELECT count() FROM table GROUP ALL` (the argument is currently ignored).
     pub fn count(self, _field: &str) -> Select<T> {
         let mut s = Select::bare();
         s.count = true;
@@ -80,15 +99,18 @@ impl<T: SurrealRecord> Table<T> {
         s
     }
 
+    /// Begin an `INSERT INTO <table> …`.
     pub fn insert(self) -> Insert<T> {
         Insert {
             data: Vec::new(),
             return_fields: vec![],
         }
     }
+    /// Begin a `CREATE <table> …`.
     pub fn create(self) -> Create<T> {
         Create::for_table()
     }
+    /// Begin an `UPDATE <table> …`.
     pub fn update(self) -> Update<T> {
         Update::for_table()
     }
@@ -98,6 +120,7 @@ impl<T: SurrealRecord> Table<T> {
     pub fn upsert(self) -> Update<T> {
         Update::for_upsert()
     }
+    /// Begin a `DELETE <table> …`.
     pub fn delete(self) -> Delete<T> {
         Delete::for_table()
     }
@@ -113,6 +136,8 @@ impl<T: SurrealRecord> Default for Table<T> {
 // SELECT
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/// A `SELECT` statement builder: projections, `WHERE`, `ORDER BY`, `LIMIT`,
+/// `START`, `FETCH`, `GROUP BY`/`GROUP ALL`, and `count()`.
 pub struct Select<T: SurrealRecord> {
     _marker: std::marker::PhantomData<T>,
     projections: Vec<Projection>,
@@ -262,6 +287,8 @@ impl<T: SurrealRecord> std::fmt::Display for Select<T> {
 // INSERT
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/// An `INSERT INTO <table> …` builder. Records are serialized inline as object
+/// literals; rendering requires `T: serde::Serialize`.
 pub struct Insert<T: SurrealRecord> {
     data: Vec<T>,
     return_fields: Vec<&'static str>,
@@ -314,6 +341,8 @@ enum SetVal {
     Content(String),
 }
 
+/// An `UPDATE`/`UPSERT` builder: `SET` / `MERGE` / `CONTENT`, an optional `WHERE`,
+/// and `RETURN`. Built via [`Table::update`] or [`Table::upsert`].
 pub struct Update<T: SurrealRecord> {
     _marker: std::marker::PhantomData<T>,
     verb: &'static str,
@@ -569,6 +598,7 @@ impl<T: SurrealRecord> std::fmt::Display for Create<T> {
 // DELETE
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/// A `DELETE <target> [WHERE …] [RETURN …]` builder.
 pub struct Delete<T: SurrealRecord> {
     _marker: std::marker::PhantomData<T>,
     target: Target,
@@ -680,6 +710,8 @@ fn record_id_string(thing: &Thing<impl SurrealRecord>) -> String {
     s
 }
 
+/// Builds a graph edge statement `RELATE a -> edge -> b` for an edge type `E`.
+/// For edges that carry their own fields, see [`RelateEdge`].
 pub struct Relate<E: SurrealEdge> {
     _marker: std::marker::PhantomData<E>,
 }

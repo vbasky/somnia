@@ -1,3 +1,11 @@
+//! Core record types and traits.
+//!
+//! - [`Key`] / [`Thing`] — a SurrealDB record id (`table:key`) and its typed
+//!   wrapper `Thing<T>`.
+//! - [`Point`] / [`LineString`] / [`Polygon`] — GeoJSON geometry values.
+//! - [`SurrealRecord`] / [`SurrealEdge`] / [`SurrealSchema`] — the traits a record
+//!   type implements (normally via `#[derive(SurrealRecord)]`).
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -248,8 +256,13 @@ impl<'de> Deserialize<'de> for Polygon {
 
 // ─── SurrealRecord trait ──────────────────────────────────────────────────────
 
+/// A type that maps to a SurrealDB table. Normally implemented by
+/// `#[derive(SurrealRecord)]`, which also generates the typed column accessors and
+/// the query-builder entry points (`table()`, `all()`).
 pub trait SurrealRecord: Sized + Send + Sync + 'static + std::fmt::Debug + Clone {
+    /// The SurrealDB table name (e.g. `"post"`).
     fn table_name() -> &'static str;
+    /// The record-id field name (the `#[field(thing)]` field; defaults to `"id"`).
     fn primary_key() -> &'static str;
 }
 

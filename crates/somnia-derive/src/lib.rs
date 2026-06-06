@@ -1,7 +1,77 @@
+//! Derive macros for [somnia](https://docs.rs/somnia), the type-safe SurrealDB ORM.
+//!
+//! This crate provides the `SurrealRecord` derive, which turns a plain Rust struct
+//! into a typed SurrealDB record — generating the table name, typed column
+//! accessors for the query builder, and the schema DDL (`DEFINE TABLE` /
+//! `DEFINE FIELD`).
+//!
+//! You normally don't depend on this crate directly; use the re-export from the
+//! `somnia` umbrella crate: `use somnia::SurrealRecord;`.
+
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput, Fields, Meta};
 
+/// Derive typed SurrealDB record metadata, column accessors, and schema DDL.
+///
+/// Applied to a named-field struct, `#[derive(SurrealRecord)]` generates:
+///
+/// - **`SurrealRecord`** — `table_name()` and `primary_key()`.
+/// - **`SurrealSchema`** — `define_table()` / `define_fields()` / `remove_table()`
+///   (the `DEFINE TABLE` / `DEFINE FIELD` / `REMOVE TABLE` DDL), plus the
+///   reversible `up()` / `down()` migration helpers built from them.
+/// - **Inherent associated functions**:
+///   - `Type::table()` — entry point to the typed query builder (`Table<Type>`).
+///   - `Type::all()` — the `*` column set for `SELECT`.
+///   - `Type::<field>()` — a typed column accessor per field (e.g. `Post::title()`),
+///     returning a `Column<Type, FieldTy>` for use in filters and projections.
+///
+/// # Container attributes — `#[table(...)]`
+///
+/// | Form | Effect |
+/// |------|--------|
+/// | `#[table("name")]` | table name (defaults to the lowercased struct name) |
+/// | `#[table("name", schemaless)]` | emit `SCHEMALESS` (default `SCHEMAFULL`) |
+/// | `#[table("name", permissions = "NONE")]` | table `PERMISSIONS` clause (default `FULL`) |
+///
+/// # Field attributes — `#[field(...)]`
+///
+/// | Attribute | Effect |
+/// |-----------|--------|
+/// | `#[field(thing)]` | the record-id field; becomes `primary_key`, omitted from `DEFINE FIELD` |
+/// | `#[field(record = "table")]` | field type is `record<table>` (a link) |
+/// | `#[field(ty = "…")]` | override the full SurrealQL field type |
+/// | `#[field(default = "…")]` | `DEFAULT …` clause |
+/// | `#[field(value = "…")]` | `VALUE …` clause |
+/// | `#[field(flexible)]` | mark the field `FLEXIBLE` |
+/// | `#[field(name = "…")]` | use a DB column name different from the Rust field |
+/// | `#[field(skip)]` | omit the field entirely |
+///
+/// # Example
+///
+/// ```ignore
+/// use somnia::{SurrealRecord, Thing};
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Clone, Serialize, Deserialize, SurrealRecord)]
+/// #[table("post")]
+/// struct Post {
+///     #[field(thing)]
+///     id: Thing<Post>,
+///     title: String,
+///     published_at: Option<String>,
+/// }
+///
+/// assert_eq!(Post::table_name(), "post");
+/// let sql = Post::table()
+///     .select(Post::all())
+///     .filter(Post::title().eq("hi".to_string()))
+///     .to_surrealql();
+/// ```
+///
+/// # Panics
+///
+/// Compile-time error if applied to anything other than a struct with named fields.
 #[proc_macro_derive(SurrealRecord, attributes(table, field))]
 pub fn derive_surreal_record(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
