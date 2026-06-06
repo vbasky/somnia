@@ -17,7 +17,7 @@ migrations.
 
 ```toml
 [dependencies]
-somnia = "0.3"
+somnia = "0.4"
 ```
 
 ---
@@ -85,6 +85,24 @@ let create = Post::table()
     .set_raw("published_at", "time::now()")
     .returning(Returning::After)
     .to_surrealql();
+
+// CREATE then SELECT back with typed projections
+let batch = Post::table()
+    .create()
+    .record("post-1".to_string())
+    .set_lit("title", "Hello, world".to_string())
+    .set_expr("author", RecordLink::new("author", "bob".to_string()))
+    .set_raw("published_at", "time::now()")
+    .returning(Returning::After)
+    .then_select(
+        Post::table()
+            .project(vec![
+                field("record::id(id)", "id"),
+                col("title"),
+                field("type::string(published_at)", "published_at"),
+            ])
+            .limit(1),
+    );
 
 // UPDATE / DELETE with RETURN variants
 let del = Post::table()
@@ -188,7 +206,7 @@ the full list).
 
 ## Status
 
-`0.3.x` — early but tested against SurrealDB 3.x (query builder, derive, schema
+`0.4.x` — early but tested against SurrealDB 3.x (query builder, derive, schema
 generation, and migrator all covered by integration tests that run on an
 in-memory engine). The API may evolve before `1.0`. See the
 [roadmap](https://github.com/vbasky/somnia/blob/main/ROADMAP.md) for what's covered today and what's planned on the way to
