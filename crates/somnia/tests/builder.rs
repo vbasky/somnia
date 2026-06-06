@@ -188,6 +188,69 @@ mod tests {
     }
 
     #[test]
+    fn create_then_select_joins_with_semicolon() {
+        let sql = SystemSetting::table()
+            .create()
+            .set_lit("key", "k1".to_string())
+            .then_select(
+                SystemSetting::table()
+                    .project(vec![col("key")])
+                    .limit(1),
+            );
+        assert_eq!(
+            sql,
+            "CREATE system_settings SET key = 'k1';\nSELECT key FROM system_settings LIMIT 1"
+        );
+    }
+
+    #[test]
+    fn update_then_select_joins_with_semicolon() {
+        let sql = SystemSetting::table()
+            .update()
+            .set_lit("key", "k2".to_string())
+            .then_select(
+                SystemSetting::table()
+                    .project(vec![col("key")])
+                    .limit(1),
+            );
+        assert_eq!(
+            sql,
+            "UPDATE system_settings SET key = 'k2';\nSELECT key FROM system_settings LIMIT 1"
+        );
+    }
+
+    #[test]
+    fn delete_then_select_joins_with_semicolon() {
+        let sql = SystemSetting::table()
+            .delete()
+            .then_select(
+                SystemSetting::table()
+                    .project(vec![col("key")])
+                    .limit(1),
+            );
+        assert_eq!(
+            sql,
+            "DELETE system_settings;\nSELECT key FROM system_settings LIMIT 1"
+        );
+    }
+
+    #[test]
+    fn then_select_preserves_mutation_clauses() {
+        let sql = SystemSetting::table()
+            .create()
+            .set_lit("key", "k3".to_string())
+            .returning(Returning::After)
+            .then_select(
+                SystemSetting::table()
+                    .project(vec![col("key")])
+                    .limit(1),
+            );
+        assert!(sql.starts_with(
+            "CREATE system_settings SET key = 'k3' RETURN AFTER;\nSELECT"
+        ));
+    }
+
+    #[test]
     fn update_content_upsert() {
         // stats_provider upsert — UPDATE type::record(...) CONTENT {...} RETURN AFTER
         let cfg = serde_json::json!({"enabled": true});

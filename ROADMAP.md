@@ -14,6 +14,7 @@ SurrealQL. Checkboxes track status; nothing here is a commitment to a date.
 **Covered:** `SELECT` (projections, `WHERE`, `ORDER BY`, `LIMIT`, `START`,
 `FETCH`, `GROUP BY`/`GROUP ALL`, `count()`), `CREATE`, `INSERT`, `UPDATE`
 (`SET`/`MERGE`/`CONTENT`), `DELETE`, `RELATE` (+ edge content), `Batch`;
+`then_select()` mutate-and-reselect on `CREATE`/`UPDATE`/`DELETE`;
 comparison/logical operators, `type::record(...)` links, generic function calls;
 `DEFINE TABLE`/`DEFINE FIELD`/`REMOVE TABLE` via derive; diesel-style migrations;
 literals for string/int/float/bool/`datetime`(`d'…'`)/`uuid`(`u'…'`)/object/record/`Option`.

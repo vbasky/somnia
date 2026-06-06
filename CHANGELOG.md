@@ -10,6 +10,16 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-06
+
+### Added
+
+- **`then_select` on `CREATE`/`UPDATE`/`DELETE`** — replaces the manual
+  `Batch::new().push(mut).push(select).to_surrealql()` pattern with a single
+  method chain: `create.then_select(select)`. Joins any mutation statement with
+  a follow-up `SELECT` as a `;`-separated batch. Available on `Create<T>`,
+  `Update<T>`, and `Delete<T>`.
+
 ## [0.3.1] - 2026-06-06
 
 ### Changed (0.3.1)

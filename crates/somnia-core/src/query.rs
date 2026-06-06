@@ -383,6 +383,12 @@ impl<T: SurrealRecord> Update<T> {
         self
     }
 
+    /// Follow this `UPDATE` with a reselecting [`Select`], joined as a `;`-separated
+    /// batch. See [`Create::then_select`] for motivation.
+    pub fn then_select(self, select: Select<T>) -> String {
+        format!("{};\n{}", self.to_surrealql(), select.to_surrealql())
+    }
+
     pub fn to_surrealql(&self) -> String {
         let mut q = String::from("UPDATE ");
         self.target.render(&mut q);
@@ -499,6 +505,16 @@ impl<T: SurrealRecord> Create<T> {
         self
     }
 
+    /// Follow this `CREATE` with a reselecting [`Select`], joined as a `;`-separated
+    /// batch. The select is rendered immediately, producing a complete SurrealQL
+    /// string ready for `db.query()`.
+    ///
+    /// This replaces the manual `Batch::new().push(create).push(select).to_surrealql()`
+    /// pattern for mutate-then-reselect workflows.
+    pub fn then_select(self, select: Select<T>) -> String {
+        format!("{};\n{}", self.to_surrealql(), select.to_surrealql())
+    }
+
     pub fn to_surrealql(&self) -> String {
         let mut q = String::from("CREATE ");
         self.target.render(&mut q);
@@ -563,6 +579,13 @@ impl<T: SurrealRecord> Delete<T> {
         self.returning = r;
         self
     }
+
+    /// Follow this `DELETE` with a reselecting [`Select`], joined as a `;`-separated
+    /// batch. See [`Create::then_select`] for motivation.
+    pub fn then_select(self, select: Select<T>) -> String {
+        format!("{};\n{}", self.to_surrealql(), select.to_surrealql())
+    }
+
     pub fn to_surrealql(&self) -> String {
         let mut q = String::from("DELETE ");
         self.target.render(&mut q);
