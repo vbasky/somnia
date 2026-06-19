@@ -53,6 +53,21 @@ for f in crates/*/Cargo.toml; do
   perl -i -pe "s/(version = )\"\Q${CUR}\E\"/\${1}\"${VERSION}\"/g" "$f"
 done
 
+# ── bump README version strings (major.minor) ──────────────────────────────
+# The READMEs pin a major.minor constraint (`somnia = "0.5"`) and carry a
+# `0.5.x` status line — the patch component is intentionally omitted. These
+# only change on a major/minor bump; a patch release leaves them untouched.
+# crates.io renders the crate README per published version, so a stale pin
+# here (e.g. "0.4" while shipping 0.5.0) misleads users and won't even resolve.
+CUR_MM="${CUR%.*}"
+NEW_MM="${VERSION%.*}"
+if [ "$CUR_MM" != "$NEW_MM" ]; then
+  echo "==> bumping README version strings ${CUR_MM} -> ${NEW_MM}"
+  for f in README.md crates/somnia/README.md; do
+    perl -i -pe "s/(somnia = )\"\Q${CUR_MM}\E\"/\${1}\"${NEW_MM}\"/g; s/\Q${CUR_MM}.x\E/${NEW_MM}.x/g" "$f"
+  done
+fi
+
 # ── validate before tagging ────────────────────────────────────────────────
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
@@ -60,7 +75,7 @@ cargo test --workspace
 cargo build --workspace   # final manifest + compile validation
 
 # ── commit, tag, push ──────────────────────────────────────────────────────
-git add Cargo.toml Cargo.lock crates/*/Cargo.toml CHANGELOG.md
+git add Cargo.toml Cargo.lock crates/*/Cargo.toml CHANGELOG.md README.md crates/somnia/README.md
 git commit -m "release: ${TAG}"
 git tag -a "${TAG}" -m "somnia ${VERSION}"
 git push origin main
