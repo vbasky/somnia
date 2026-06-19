@@ -13,8 +13,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-somnia-core = { path = "../somnia-core", version = "0.4.1" }
-somnia-derive = { path = "../somnia-derive", version = "0.4.1" }
+somnia-core = { path = "../somnia-core", version = "0.5.0" }
+somnia-derive = { path = "../somnia-derive", version = "0.5.0" }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
