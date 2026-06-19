@@ -10,6 +10,14 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-20
+
+### Changed (0.5.1)
+
+- **README** — bumped the install snippet and status line from `0.4` to `0.5`.
+  The `0.5.0` crates.io README still showed `somnia = "0.4"` (a constraint that
+  won't resolve to `0.5.0`); this corrects it. Docs only; no code changes.
+
 ## [0.5.0] - 2026-06-20
 
 ### Added (0.5.0)
