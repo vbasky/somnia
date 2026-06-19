@@ -3876,7 +3876,7 @@ dependencies = [
 
 [[package]]
 name = "somnia"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3893,7 +3893,7 @@ dependencies = [
 
 [[package]]
 name = "somnia-cli"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3905,7 +3905,7 @@ dependencies = [
 
 [[package]]
 name = "somnia-core"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "serde",
@@ -3917,7 +3917,7 @@ dependencies = [
 
 [[package]]
 name = "somnia-derive"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "proc-macro2",
  "quote",
