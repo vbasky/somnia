@@ -10,6 +10,23 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-20
+
+### Added (0.5.0)
+
+- **Graph traversal in `SELECT`** — a typed `Path` expression node for querying
+  across edges created with `RELATE` (previously a drop to `Raw`). Build hops with
+  `Path::out::<E>()` / `inn` / `both` (raw variants `out_edge` / `in_edge` /
+  `both_edge`), constrain the destination with `.to::<T>()` / `.to_table(...)`,
+  chain multi-hop paths with `.then_out::<E>()` / `.then_in::<E>()`, filter a hop's
+  edge with `.where_(expr)` (`->(edge WHERE …)->table`), append a `.field("…")` or
+  `.all()` (`.*`) accessor, and anchor to a record with `.from_record(thing)` /
+  `.from_expr(...)`. A `Path` is a `DynExpr`, so it works as a `SELECT` projection
+  (`Table::project_path(path, alias)`, `Select::with_path(path, alias)` for
+  `SELECT *, <path> AS …`) or inside a `WHERE` filter (with `.contains(...)`,
+  `.eq_expr(...)`, `.and(...)` / `.or(...)`). Recursive `{..}` paths and `.{…}`
+  destructuring are not yet covered.
+
 ## [0.4.1] - 2026-06-06
 
 ### Added (0.4.1)

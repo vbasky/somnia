@@ -5,8 +5,8 @@
 #[cfg(test)]
 mod tests {
     use somnia::{
-        col, field, ident, Batch, Grouped, NoneLit, Raw, RecordLink, Returning, SurrealRecord,
-        Thing,
+        col, field, ident, Batch, Grouped, NoneLit, Path, Raw, RecordLink, Returning, SurrealEdge,
+        SurrealRecord, Thing,
     };
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, SurrealRecord)]
@@ -344,5 +344,155 @@ mod tests {
             sql,
             "UPSERT system_settings MERGE { enabled: true } WHERE key = 'theme'"
         );
+    }
+
+    // ─── Graph traversal (Path) ─────────────────────────────────────────────────
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, SurrealRecord)]
+    #[table("user")]
+    struct User {
+        #[field(thing)]
+        id: Thing<User>,
+        name: String,
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, SurrealRecord)]
+    #[table("post")]
+    struct Post {
+        #[field(thing)]
+        id: Thing<Post>,
+        title: String,
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, SurrealRecord)]
+    #[table("wrote")]
+    struct Wrote {
+        #[field(thing)]
+        id: Thing<Wrote>,
+    }
+    impl SurrealEdge for Wrote {
+        fn edge_name() -> &'static str {
+            "wrote"
+        }
+    }
+
+    fn render(p: Path) -> String {
+        use somnia::DynExpr;
+        let mut buf = String::new();
+        p.render_dyn(&mut buf);
+        buf
+    }
+
+    #[test]
+    fn path_out_to_table() {
+        assert_eq!(render(Path::out::<Wrote>().to::<Post>()), "->wrote->post");
+    }
+
+    #[test]
+    fn path_in_and_both() {
+        assert_eq!(render(Path::inn::<Wrote>().to::<User>()), "<-wrote<-user");
+        assert_eq!(
+            render(Path::both::<Wrote>().to::<Post>()),
+            "<->wrote<->post"
+        );
+    }
+
+    #[test]
+    fn path_field_and_all_accessors() {
+        assert_eq!(
+            render(Path::out::<Wrote>().to::<Post>().field("title")),
+            "->wrote->post.title"
+        );
+        assert_eq!(
+            render(Path::out::<Wrote>().to::<Post>().all()),
+            "->wrote->post.*"
+        );
+    }
+
+    #[test]
+    fn path_edge_only_no_dest() {
+        assert_eq!(render(Path::out::<Wrote>()), "->wrote");
+    }
+
+    #[test]
+    fn path_multi_hop() {
+        // ->wrote->post<-wrote<-user : a post's co-authors
+        let p = Path::out::<Wrote>()
+            .to::<Post>()
+            .then_in::<Wrote>()
+            .to::<User>();
+        assert_eq!(render(p), "->wrote->post<-wrote<-user");
+    }
+
+    #[test]
+    fn path_edge_where_filter() {
+        let p = Path::out_edge("reacted_to")
+            .where_(ident("kind").eq("celebrate".to_string()))
+            .to_table("post");
+        assert_eq!(render(p), "->(reacted_to WHERE kind = 'celebrate')->post");
+    }
+
+    #[test]
+    fn path_from_record_anchor() {
+        let tobie: Thing<User> = Thing::new("tobie");
+        let p = Path::out::<Wrote>().to::<Post>().from_record(tobie);
+        assert_eq!(render(p), "user:tobie->wrote->post");
+    }
+
+    #[test]
+    fn path_as_select_projection() {
+        // SELECT ->wrote->post.title AS titles FROM user
+        let sql = User::table()
+            .project_path(Path::out::<Wrote>().to::<Post>().field("title"), "titles")
+            .to_surrealql();
+        assert_eq!(sql, "SELECT ->wrote->post.title AS titles FROM user");
+    }
+
+    #[test]
+    fn path_with_star_projection() {
+        // SELECT *, ->wrote->post AS posts FROM user
+        let sql = User::table()
+            .select(User::all())
+            .with_path(Path::out::<Wrote>().to::<Post>(), "posts")
+            .to_surrealql();
+        assert_eq!(sql, "SELECT *, ->wrote->post AS posts FROM user");
+    }
+
+    #[test]
+    fn path_explicit_projection_then_path() {
+        // project([...]) then with_path appends without injecting a `*`.
+        let sql = User::table()
+            .project(vec![col("name")])
+            .with_path(Path::out::<Wrote>().to::<Post>(), "posts")
+            .to_surrealql();
+        assert_eq!(sql, "SELECT name, ->wrote->post AS posts FROM user");
+    }
+
+    #[test]
+    fn path_in_where_filter() {
+        // SELECT name FROM user WHERE ->wrote->post CONTAINS post:p1
+        let p1: Thing<Post> = Thing::new("p1");
+        let sql = User::table()
+            .project(vec![col("name")])
+            .filter(Path::out::<Wrote>().to::<Post>().contains(p1))
+            .to_surrealql();
+        assert_eq!(
+            sql,
+            "SELECT name FROM user WHERE ->wrote->post CONTAINS post:p1"
+        );
+    }
+
+    #[test]
+    fn path_combinators_and() {
+        // Path supports .and()/.or() via the shared combinator macro.
+        let p = Path::out::<Wrote>()
+            .to::<Post>()
+            .field("title")
+            .eq_expr(Raw("'hi'".into()))
+            .and(Raw("1 = 1".into()));
+        let mut buf = String::new();
+        use somnia::DynExpr;
+        p.render_dyn(&mut buf);
+        assert_eq!(buf, "->wrote->post.title = 'hi' AND 1 = 1");
     }
 }

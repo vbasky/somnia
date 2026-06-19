@@ -398,6 +398,241 @@ impl DynExpr for RecordLink {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Path — graph traversal (`->edge->table`, `<-edge<-table`, `<->edge<->table`)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Direction of a single graph hop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Dir {
+    /// outgoing edge — `->`
+    Out,
+    /// incoming edge — `<-`
+    In,
+    /// either direction — `<->`
+    Both,
+}
+
+impl Dir {
+    fn arrow(self) -> &'static str {
+        match self {
+            Dir::Out => "->",
+            Dir::In => "<-",
+            Dir::Both => "<->",
+        }
+    }
+}
+
+/// One hop in a graph [`Path`]: a direction, an edge table, an optional
+/// destination table, and an optional `WHERE` filter on the edge.
+#[derive(Debug)]
+struct Step {
+    dir: Dir,
+    edge: &'static str,
+    dest: Option<&'static str>,
+    filter: Option<Box<dyn DynExpr>>,
+}
+
+impl Step {
+    fn render(&self, buf: &mut String) {
+        buf.push_str(self.dir.arrow());
+        match &self.filter {
+            // `->(edge WHERE <expr>)`
+            Some(f) => {
+                buf.push('(');
+                buf.push_str(self.edge);
+                buf.push_str(" WHERE ");
+                f.render_dyn(buf);
+                buf.push(')');
+            }
+            None => buf.push_str(self.edge),
+        }
+        if let Some(dest) = self.dest {
+            buf.push_str(self.dir.arrow());
+            buf.push_str(dest);
+        }
+    }
+}
+
+/// The trailing field accessor on a [`Path`] — `.field` or `.*`.
+#[derive(Debug)]
+enum Tail {
+    Field(String),
+    All,
+}
+
+/// A graph-traversal expression — e.g. `->wrote->post`, `<-wrote<-user`, or a
+/// multi-hop chain with an optional `.field`/`.*` accessor at the end.
+///
+/// A `Path` is a [`DynExpr`], so it works anywhere the builder takes an
+/// expression: as a `SELECT` projection (`Projection::aliased(path, "posts")`),
+/// inside a `WHERE` filter, or as a `SET` value. With no start it is relative to
+/// the statement's `FROM` table; [`Path::from_record`] anchors it to a record.
+///
+/// ```ignore
+/// // ->wrote->post.title AS titles
+/// let p = Path::out::<Wrote>().to::<Post>().field("title");
+/// Post::table().project(vec![Projection::aliased(p, "titles")]);
+/// ```
+#[derive(Debug)]
+pub struct Path {
+    start: Option<Box<dyn DynExpr>>,
+    steps: Vec<Step>,
+    tail: Option<Tail>,
+}
+
+impl Path {
+    fn from_step(dir: Dir, edge: &'static str) -> Self {
+        Self {
+            start: None,
+            steps: vec![Step {
+                dir,
+                edge,
+                dest: None,
+                filter: None,
+            }],
+            tail: None,
+        }
+    }
+
+    /// Start an outgoing hop over edge `E` — `->edge`.
+    pub fn out<E: crate::types::SurrealEdge>() -> Self {
+        Self::from_step(Dir::Out, E::edge_name())
+    }
+    /// Start an incoming hop over edge `E` — `<-edge`.
+    pub fn inn<E: crate::types::SurrealEdge>() -> Self {
+        Self::from_step(Dir::In, E::edge_name())
+    }
+    /// Start a bidirectional hop over edge `E` — `<->edge`.
+    pub fn both<E: crate::types::SurrealEdge>() -> Self {
+        Self::from_step(Dir::Both, E::edge_name())
+    }
+
+    /// Start an outgoing hop over a raw edge name — `->edge`.
+    pub fn out_edge(edge: &'static str) -> Self {
+        Self::from_step(Dir::Out, edge)
+    }
+    /// Start an incoming hop over a raw edge name — `<-edge`.
+    pub fn in_edge(edge: &'static str) -> Self {
+        Self::from_step(Dir::In, edge)
+    }
+    /// Start a bidirectional hop over a raw edge name — `<->edge`.
+    pub fn both_edge(edge: &'static str) -> Self {
+        Self::from_step(Dir::Both, edge)
+    }
+
+    /// Anchor an existing path to a starting record literal — `<record><path>`
+    /// (e.g. `user:tobie->wrote->post`). Pass a [`Thing`](crate::types::Thing).
+    pub fn from_record<V: SurrealQL>(mut self, start: V) -> Self {
+        self.start = Some(Box::new(Literal(start)));
+        self
+    }
+
+    /// Anchor an existing path to a starting expression — e.g. a
+    /// [`RecordLink`] (`type::record('user', $id)->wrote->post`).
+    pub fn from_expr(mut self, start: impl DynExpr + 'static) -> Self {
+        self.start = Some(Box::new(start));
+        self
+    }
+
+    fn last_mut(&mut self) -> &mut Step {
+        self.steps.last_mut().expect("path always has ≥1 step")
+    }
+
+    /// Constrain the destination of the most recent hop to table `T` — `->edge->table`.
+    pub fn to<T: SurrealRecord>(mut self) -> Self {
+        self.last_mut().dest = Some(T::table_name());
+        self
+    }
+    /// Constrain the destination of the most recent hop to a raw table name.
+    pub fn to_table(mut self, table: &'static str) -> Self {
+        self.last_mut().dest = Some(table);
+        self
+    }
+
+    /// Filter the most recent hop's edge — `->(edge WHERE <expr>)`.
+    pub fn where_(mut self, expr: impl DynExpr + 'static) -> Self {
+        self.last_mut().filter = Some(Box::new(expr));
+        self
+    }
+
+    /// Chain another outgoing hop over edge `E`.
+    pub fn then_out<E: crate::types::SurrealEdge>(self) -> Self {
+        self.push_step(Dir::Out, E::edge_name())
+    }
+    /// Chain another incoming hop over edge `E`.
+    pub fn then_in<E: crate::types::SurrealEdge>(self) -> Self {
+        self.push_step(Dir::In, E::edge_name())
+    }
+    /// Chain another bidirectional hop over edge `E`.
+    pub fn then_both<E: crate::types::SurrealEdge>(self) -> Self {
+        self.push_step(Dir::Both, E::edge_name())
+    }
+    /// Chain another hop over a raw edge name, outgoing.
+    pub fn then_out_edge(self, edge: &'static str) -> Self {
+        self.push_step(Dir::Out, edge)
+    }
+    /// Chain another hop over a raw edge name, incoming.
+    pub fn then_in_edge(self, edge: &'static str) -> Self {
+        self.push_step(Dir::In, edge)
+    }
+
+    fn push_step(mut self, dir: Dir, edge: &'static str) -> Self {
+        self.steps.push(Step {
+            dir,
+            edge,
+            dest: None,
+            filter: None,
+        });
+        self
+    }
+
+    /// Append a field accessor — `<path>.field`.
+    pub fn field(mut self, name: impl Into<String>) -> Self {
+        self.tail = Some(Tail::Field(name.into()));
+        self
+    }
+    /// Append the all-fields accessor — `<path>.*`.
+    pub fn all(mut self) -> Self {
+        self.tail = Some(Tail::All);
+        self
+    }
+
+    /// `<path> CONTAINS <value>` — e.g. membership test over a traversed list.
+    pub fn contains<V: SurrealQL>(self, value: V) -> ContainsExpr {
+        ContainsExpr {
+            haystack: Box::new(self),
+            needle: Box::new(Literal(value)),
+        }
+    }
+    /// `<path> = <expr>`.
+    pub fn eq_expr(self, rhs: impl DynExpr + 'static) -> EqExpr {
+        EqExpr {
+            left: Box::new(self),
+            right: Box::new(rhs),
+        }
+    }
+}
+
+impl DynExpr for Path {
+    fn render_dyn(&self, buf: &mut String) {
+        if let Some(start) = &self.start {
+            start.render_dyn(buf);
+        }
+        for step in &self.steps {
+            step.render(buf);
+        }
+        match &self.tail {
+            Some(Tail::Field(f)) => {
+                buf.push('.');
+                buf.push_str(f);
+            }
+            Some(Tail::All) => buf.push_str(".*"),
+            None => {}
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Func — `name(arg, arg, …)` (record::id, type::string, string::lowercase, …)
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -615,7 +850,7 @@ impl DynExpr for Grouped {
     }
 }
 
-combinators!(Grouped, Func);
+combinators!(Grouped, Func, Path);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Projection — a SELECT field, optionally `<expr> AS alias`

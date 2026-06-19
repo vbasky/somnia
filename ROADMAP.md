@@ -13,7 +13,7 @@ SurrealQL. Checkboxes track status; nothing here is a commitment to a date.
 
 **Covered:** `SELECT` (projections, `WHERE`, `ORDER BY`, `LIMIT`, `START`,
 `FETCH`, `GROUP BY`/`GROUP ALL`, `count()`), `CREATE`, `INSERT`, `UPDATE`
-(`SET`/`MERGE`/`CONTENT`), `DELETE`, `RELATE` (+ edge content), `Batch`;
+(`SET`/`MERGE`/`CONTENT`), `UPSERT`, `DELETE`, `RELATE` (+ edge content), `Batch`;
 `then_select()` mutate-and-reselect on `CREATE`/`UPDATE`/`DELETE`;
 comparison/logical operators, `type::record(...)` links, generic function calls;
 `DEFINE TABLE`/`DEFINE FIELD`/`REMOVE TABLE` via derive; diesel-style migrations;
@@ -23,29 +23,31 @@ literals for string/int/float/bool/`datetime`(`d'…'`)/`uuid`(`u'…'`)/object/
 
 ---
 
-## P0 — correctness fixes (small, do first)
+## P0 — correctness fixes (small, do first) — ✅ shipped in 0.3.0
 
-- [ ] **Record-id key escaping.** `Thing::render_literal` and `RELATE` emit a bare
-      `table:key` ([query.rs](crates/somnia-core/src/query.rs)), so UUID or
-      special-character ids can mis-parse. Wrap non-simple keys (`⟨…⟩` or typed
-      `u'…'`) or route through `type::record(...)` consistently.
-- [ ] **`INSERT` `$data` binding.** `INSERT INTO t $data` relies on a `$data`
-      bind the typed layer never provides; either render the record inline or
-      thread the binding through the client.
-- [ ] **Geometry serialization.** `Point`/`LineString`/`Polygon` derive plain
-      array `Serialize`; emit GeoJSON (`{ type, coordinates }`) so SurrealDB
-      stores them as `geometry`, and add query-literal support.
+- [x] **Record-id key escaping.** `Thing` literals and `RELATE` now backtick-quote
+      UUID and non-identifier string keys so they parse as a record id instead of
+      an arithmetic expression. (0.3.0)
+- [x] **`INSERT` `$data` binding.** `INSERT INTO t …` now serializes the queued
+      record(s) inline as object literals instead of an unbound `$data`
+      placeholder. (0.3.0)
+- [x] **Geometry serialization.** `Point`/`LineString`/`Polygon` now serialize as
+      GeoJSON (`{ type, coordinates }`) so SurrealDB stores them as `geometry`, plus
+      query-literal support. (0.3.0, breaking)
 
 ## P1 — highest-value features
 
-- [ ] **Graph traversal in `SELECT`.** Path expressions (`->edge->table`,
-      `<-in<-`, `.{…}`, recursive `{..}` paths). somnia can create edges via
-      `RELATE` but can't query across them — the biggest "drop to raw" today.
+- [~] **Graph traversal in `SELECT`.** Basic path expressions shipped: the typed
+      [`Path`](crates/somnia-core/src/expr.rs) node renders `->edge->table`,
+      `<-edge<-table`, `<->edge<->table`, multi-hop chains, `.field`/`.*`
+      accessors, per-hop `WHERE` filters, and record anchoring — usable as a
+      `SELECT` projection (`project_path`/`with_path`) or in a `WHERE`. **Still
+      open:** recursive `{..}` paths and `.{…}` destructuring (a follow-up PR).
 - [ ] **`DEFINE INDEX`.** Unique constraints + plain/composite indexes, plus the
       search/vector index variants. Unlocks uniqueness, full-text, and vector
       search. Surface it through the derive (`#[index(...)]`) and migrations.
-- [ ] **`UPSERT`.** First-class statement (currently approximated with
-      `UPDATE … CONTENT` on a record id).
+- [x] **`UPSERT`.** First-class statement via `Table::upsert()`, sharing the
+      `UPDATE` builder surface. (0.4.1)
 - [ ] **Richer type mapping.** Replace the string-match type mapper
       ([derive lib.rs](crates/somnia-derive/src/lib.rs)) with real type analysis
       and add `decimal`, `duration`, `bytes`, typed nested objects, arrays of

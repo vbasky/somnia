@@ -39,7 +39,7 @@ pub use connection::{SomniaClient, SomniaError};
 pub use migrate::{MigrationStatus, Migrator};
 pub use somnia_core::{
     col,
-    expr::{Column, ColumnMeta, ColumnSet, DynExpr, Order, SurrealQL},
+    expr::{Column, ColumnMeta, ColumnSet, DynExpr, Order, Path, SurrealQL},
     field, ident,
     query::{Batch, Create, Delete, Insert, Relate, RelateEdge, Returning, Select, Table, Update},
     types::{Key, SurrealEdge, SurrealRecord, SurrealSchema, Thing},

@@ -14,7 +14,7 @@
 //! Mutations also offer `then_select(...)` to chain a reselect as a batch.
 
 use crate::{
-    expr::{Column, DynExpr, Order, Projection, RecordLink, SurrealQL},
+    expr::{Column, DynExpr, Order, Path, Projection, RecordLink, SurrealQL},
     types::{SurrealEdge, SurrealRecord, Thing},
 };
 
@@ -88,6 +88,14 @@ impl<T: SurrealRecord> Table<T> {
     pub fn project(self, fields: Vec<Projection>) -> Select<T> {
         let mut s = Select::bare();
         s.projections = fields;
+        s
+    }
+
+    /// `SELECT <path> AS <alias> FROM table` — project a graph traversal.
+    /// A convenience for `project(vec![Projection::aliased(path, alias)])`.
+    pub fn project_path(self, path: Path, alias: &'static str) -> Select<T> {
+        let mut s = Select::bare();
+        s.projections = vec![Projection::aliased(path, alias)];
         s
     }
 
@@ -171,6 +179,18 @@ impl<T: SurrealRecord> Select<T> {
 
     pub fn filter(mut self, expr: impl DynExpr + 'static) -> Self {
         self.filter = Some(Box::new(expr));
+        self
+    }
+    /// Add a `<path> AS <alias>` graph-traversal projection to the select list.
+    /// Appends to any existing projections, so `select(T::all()).with_path(p, "x")`
+    /// renders `SELECT *, <path> AS x` (a `*` is emitted only when the list is
+    /// otherwise empty).
+    pub fn with_path(mut self, path: Path, alias: &'static str) -> Self {
+        if self.projections.is_empty() {
+            self.projections
+                .push(Projection::new(crate::expr::Raw("*".to_string())));
+        }
+        self.projections.push(Projection::aliased(path, alias));
         self
     }
     pub fn limit(mut self, n: u32) -> Self {
