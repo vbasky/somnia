@@ -118,4 +118,37 @@ mod tests {
             "RELATE user:`550e8400-e29b-41d4-a716-446655440000` -> follows -> user:bob"
         );
     }
+
+    #[test]
+    fn recursive_graph_path_executes_on_live_surreal() {
+        use somnia::{DynExpr, Path};
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let db = connect("mem://").await.unwrap();
+            db.use_ns("t").use_db("t").await.unwrap();
+            // a follows b follows c — a two-hop chain.
+            db.query(
+                "CREATE user:a SET name='A'; CREATE user:b SET name='B'; CREATE user:c SET name='C'; \
+                 RELATE user:a->follows->user:b; RELATE user:b->follows->user:c;",
+            )
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+
+            // A recursive path built by somnia must be valid SurrealQL and run.
+            let mut path = String::new();
+            Path::out::<Follows>()
+                .to::<User>()
+                .recurse_up_to(3)
+                .render_dyn(&mut path);
+            assert_eq!(path, "@.{..3}->follows->user");
+
+            let sql = format!("SELECT {path} AS reach FROM user:a");
+            let mut res = db.query(&sql).await.unwrap().check().unwrap();
+            // The query is accepted by the engine and returns the anchor row.
+            let rows: Vec<serde_json::Value> = res.take(0).unwrap();
+            assert_eq!(rows.len(), 1, "recursive select should return one row for user:a");
+        });
+    }
 }

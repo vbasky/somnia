@@ -12,12 +12,13 @@ SurrealQL. Checkboxes track status; nothing here is a commitment to a date.
 ## Status snapshot
 
 **Covered:** `SELECT` (projections, `WHERE`, `ORDER BY`, `LIMIT`, `START`,
-`FETCH`, `GROUP BY`/`GROUP ALL`, `count()`), `CREATE`, `INSERT`, `UPDATE`
+`FETCH`, `GROUP BY`/`GROUP ALL`, `count()`), graph traversal in `SELECT`
+(`->edge->table`, recursive `@.{..}` paths), `CREATE`, `INSERT`, `UPDATE`
 (`SET`/`MERGE`/`CONTENT`), `UPSERT`, `DELETE`, `RELATE` (+ edge content), `Batch`;
 `then_select()` mutate-and-reselect on `CREATE`/`UPDATE`/`DELETE`;
 comparison/logical operators, `type::record(...)` links, generic function calls;
-`DEFINE TABLE`/`DEFINE FIELD`/`REMOVE TABLE` via derive; diesel-style migrations;
-literals for string/int/float/bool/`datetime`(`d'…'`)/`uuid`(`u'…'`)/object/record/`Option`.
+`DEFINE TABLE`/`DEFINE FIELD`/`DEFINE INDEX`/`REMOVE TABLE` via derive; diesel-style migrations;
+literals for string/int/float/bool/`datetime`(`d'…'`)/`uuid`(`u'…'`)/`duration`/array/object/record/`Option`.
 
 **Not covered:** see tiers below.
 
@@ -26,51 +27,55 @@ literals for string/int/float/bool/`datetime`(`d'…'`)/`uuid`(`u'…'`)/object/
 ## P0 — correctness fixes (small, do first) — ✅ shipped in 0.3.0
 
 - [x] **Record-id key escaping.** `Thing` literals and `RELATE` now backtick-quote
-      UUID and non-identifier string keys so they parse as a record id instead of
-      an arithmetic expression. (0.3.0)
+  UUID and non-identifier string keys so they parse as a record id instead of
+  an arithmetic expression. (0.3.0)
 - [x] **`INSERT` `$data` binding.** `INSERT INTO t …` now serializes the queued
-      record(s) inline as object literals instead of an unbound `$data`
-      placeholder. (0.3.0)
+  record(s) inline as object literals instead of an unbound `$data`
+  placeholder. (0.3.0)
 - [x] **Geometry serialization.** `Point`/`LineString`/`Polygon` now serialize as
-      GeoJSON (`{ type, coordinates }`) so SurrealDB stores them as `geometry`, plus
-      query-literal support. (0.3.0, breaking)
+  GeoJSON (`{ type, coordinates }`) so SurrealDB stores them as `geometry`, plus
+  query-literal support. (0.3.0, breaking)
 
-## P1 — highest-value features
+## P1 — highest-value features — ✅ complete
 
-- [~] **Graph traversal in `SELECT`.** Basic path expressions shipped: the typed
-      [`Path`](crates/somnia-core/src/expr.rs) node renders `->edge->table`,
-      `<-edge<-table`, `<->edge<->table`, multi-hop chains, `.field`/`.*`
-      accessors, per-hop `WHERE` filters, and record anchoring — usable as a
-      `SELECT` projection (`project_path`/`with_path`) or in a `WHERE`. **Still
-      open:** recursive `{..}` paths and `.{…}` destructuring (a follow-up PR).
-- [ ] **`DEFINE INDEX`.** Unique constraints + plain/composite indexes, plus the
-      search/vector index variants. Unlocks uniqueness, full-text, and vector
-      search. Surface it through the derive (`#[index(...)]`) and migrations.
+- [x] **Graph traversal in `SELECT`.** The typed
+  [`Path`](crates/somnia-core/src/expr.rs) node renders `->edge->table`,
+  `<-edge<-table`, `<->edge<->table`, multi-hop chains, `.field`/`.*` accessors,
+  per-hop `WHERE` filters, record anchoring, and recursive paths
+  (`@.{..}`/`{..N}`/`{M..N}`/`{N}`) — usable as a `SELECT` projection
+  (`project_path`/`with_path`) or in a `WHERE`. (0.5.2)
+- [x] **`DEFINE INDEX`.** Plain/composite/`UNIQUE` indexes plus full-text
+  (`SEARCH`) and vector (`HNSW`/`MTREE`) variants, via the runtime
+  [`DefineIndex`](crates/somnia-core/src/query.rs) builder and the derive's
+  repeatable `#[index(...)]` (folded into `SurrealSchema::define_indexes()` and
+  `up()`). (0.5.2)
 - [x] **`UPSERT`.** First-class statement via `Table::upsert()`, sharing the
-      `UPDATE` builder surface. (0.4.1)
-- [ ] **Richer type mapping.** Replace the string-match type mapper
-      ([derive lib.rs](crates/somnia-derive/src/lib.rs)) with real type analysis
-      and add `decimal`, `duration`, `bytes`, typed nested objects, arrays of
-      records, and record-id key types beyond string/uuid/int (array/object ids).
+  `UPDATE` builder surface. (0.4.1)
+- [x] **Richer type mapping.** The derive now maps Rust types by real recursive
+  `syn::Type` analysis (no more substring matching): typed arrays
+  (`Vec<T>`/sets/slices → `array<…>`), arrays of records, nested `Option`,
+  `duration`, and `decimal`, with `SurrealQL` literal impls for `Vec<T>` and
+  `Duration`. (0.5.2) Remaining nuance: `bytes` and array/object record-id key
+  types still map structurally but lack dedicated literal support.
 
 ## P2 — completeness
 
 - [ ] **Transactions.** Real `BEGIN`/`COMMIT`/`CANCEL` (today `Batch` only
-      `;`-joins statements).
+  `;`-joins statements).
 - [ ] **Parameters / `LET`.** Optional `$param` binding instead of always
-      inlining literals — enables statement reuse and binary-safe values.
+  inlining literals — enables statement reuse and binary-safe values.
 - [ ] **`SELECT` extras.** Subqueries, `VALUE`, `SPLIT`, `OMIT`, `WITH` index
-      hints, `PARALLEL`, `TIMEOUT`, `EXPLAIN`; `RETURN <projection>`.
+  hints, `PARALLEL`, `TIMEOUT`, `EXPLAIN`; `RETURN <projection>`.
 - [ ] **More schema DDL.** `DEFINE EVENT`, `DEFINE FUNCTION`, `DEFINE ANALYZER`,
-      `DEFINE PARAM`; field-level `ASSERT`, `READONLY`, and `PERMISSIONS`.
+  `DEFINE PARAM`; field-level `ASSERT`, `READONLY`, and `PERMISSIONS`.
 - [ ] **Control flow.** Typed `IF/ELSE` and `FOR` (today raw-only).
 
 ## P3 — advanced / specialized
 
 - [ ] **Live queries.** `LIVE SELECT` + a notification stream API.
 - [ ] **Auth.** Namespace/database user auth, record/scope access
-      (`SIGNUP`/`SIGNIN`), token/JWT auth, `authenticate`/`invalidate`; the
-      client currently does root signin + ns/db selection only.
+  (`SIGNUP`/`SIGNIN`), token/JWT auth, `authenticate`/`invalidate`; the
+  client currently does root signin + ns/db selection only.
 - [ ] **Vector / full-text search** query helpers (depends on `DEFINE INDEX`).
 - [ ] **Futures, closures, union/`literal` types, `references`** (SurrealDB 3.x).
 

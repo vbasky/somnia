@@ -283,13 +283,23 @@ pub trait SurrealSchema: SurrealRecord {
     /// `REMOVE TABLE IF EXISTS <table>;`
     fn remove_table() -> &'static str;
 
-    /// Migration **up**: create the table and all its fields (the full schema),
-    /// one statement per line (each already `;`-terminated).
+    /// One `DEFINE INDEX IF NOT EXISTS … ;` per `#[index(...)]` on the type, in
+    /// declaration order. Defaults to none for types without indexes.
+    fn define_indexes() -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Migration **up**: create the table, its fields, and its indexes (the full
+    /// schema), one statement per line (each already `;`-terminated).
     fn up() -> String {
         let mut out = String::from(Self::define_table());
         for f in Self::define_fields() {
             out.push('\n');
             out.push_str(f);
+        }
+        for i in Self::define_indexes() {
+            out.push('\n');
+            out.push_str(i);
         }
         out
     }

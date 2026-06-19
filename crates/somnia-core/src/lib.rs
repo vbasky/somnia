@@ -40,6 +40,7 @@ pub use expr::{
     Ident, NoneLit, Order, Path, Projection, Raw, RecordLink, SurrealQL,
 };
 pub use query::{
-    Batch, Create, Delete, Insert, Relate, RelateEdge, Returning, Select, Table, Update,
+    Batch, Create, DefineIndex, Delete, Insert, Relate, RelateEdge, Returning, Select, Table,
+    Update,
 };
 pub use types::{Key, SurrealEdge, SurrealRecord, SurrealSchema, Thing};

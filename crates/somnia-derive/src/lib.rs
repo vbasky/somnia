@@ -34,6 +34,21 @@ use syn::{parse_macro_input, Data, DeriveInput, Fields, Meta};
 /// | `#[table("name", schemaless)]` | emit `SCHEMALESS` (default `SCHEMAFULL`) |
 /// | `#[table("name", permissions = "NONE")]` | table `PERMISSIONS` clause (default `FULL`) |
 ///
+/// # Container attributes — `#[index(...)]` (repeatable)
+///
+/// Each `#[index(...)]` emits one `DEFINE INDEX` (included in `up()` after the
+/// fields, and in `define_indexes()`):
+///
+/// | Option | Effect |
+/// |--------|--------|
+/// | `name = "…"` | index name (required) |
+/// | `fields = "a, b"` / `columns = "…"` | indexed field list (required) |
+/// | `unique` | `UNIQUE` constraint |
+/// | `search = "analyzer"` | full-text `SEARCH ANALYZER …` index |
+/// | `hnsw = N` / `mtree = N` (+ `dist = "COSINE"`) | vector index of dimension `N` |
+/// | `raw = "…"` | verbatim trailing clause (escape hatch) |
+/// | `comment = "…"`, `concurrently`, `overwrite` | `COMMENT` / `CONCURRENTLY` / drop `IF NOT EXISTS` |
+///
 /// # Field attributes — `#[field(...)]`
 ///
 /// | Attribute | Effect |
@@ -72,7 +87,7 @@ use syn::{parse_macro_input, Data, DeriveInput, Fields, Meta};
 /// # Panics
 ///
 /// Compile-time error if applied to anything other than a struct with named fields.
-#[proc_macro_derive(SurrealRecord, attributes(table, field))]
+#[proc_macro_derive(SurrealRecord, attributes(table, field, index))]
 pub fn derive_surreal_record(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
@@ -158,6 +173,12 @@ pub fn derive_surreal_record(input: TokenStream) -> TokenStream {
     );
     let remove_ddl = format!("REMOVE TABLE IF EXISTS {table_name};");
 
+    // One DEFINE INDEX per `#[index(...)]` on the struct, in declaration order.
+    let index_ddls: Vec<String> = parse_index_attrs(&input.attrs)
+        .into_iter()
+        .map(|ix| ix.to_ddl(&table_name))
+        .collect();
+
     // One DEFINE FIELD per non-id field, in declaration order.
     let field_ddls: Vec<String> = field_defs.iter()
         .filter(|f| !f.is_thing)
@@ -186,6 +207,7 @@ pub fn derive_surreal_record(input: TokenStream) -> TokenStream {
             fn define_table() -> &'static str { #table_ddl }
             fn define_fields() -> &'static [&'static str] { &[ #(#field_ddls),* ] }
             fn remove_table() -> &'static str { #remove_ddl }
+            fn define_indexes() -> &'static [&'static str] { &[ #(#index_ddls),* ] }
         }
 
         impl #name {
@@ -285,6 +307,146 @@ fn parse_table_attr(attrs: &[syn::Attribute]) -> Option<TableAttr> {
     None
 }
 
+/// A parsed `#[index(...)]` container attribute.
+struct IndexAttr {
+    name: String,
+    fields: Vec<String>,
+    unique: bool,
+    /// verbatim trailing clause (SEARCH/HNSW/MTREE/raw); wins over `unique`
+    tail: Option<String>,
+    comment: Option<String>,
+    concurrently: bool,
+    if_not_exists: bool,
+}
+
+impl IndexAttr {
+    /// Render the `;`-terminated `DEFINE INDEX` DDL for this index on `table`,
+    /// matching the runtime `DefineIndex` builder's format.
+    fn to_ddl(&self, table: &str) -> String {
+        let guard = if self.if_not_exists {
+            "IF NOT EXISTS "
+        } else {
+            ""
+        };
+        let mut q = format!(
+            "DEFINE INDEX {guard}{} ON TABLE {table} FIELDS {}",
+            self.name,
+            self.fields.join(", "),
+        );
+        if let Some(tail) = &self.tail {
+            q.push(' ');
+            q.push_str(tail);
+        } else if self.unique {
+            q.push_str(" UNIQUE");
+        }
+        if let Some(c) = &self.comment {
+            let escaped = c.replace('\\', "\\\\").replace('\'', "\\'");
+            q.push_str(&format!(" COMMENT '{escaped}'"));
+        }
+        if self.concurrently {
+            q.push_str(" CONCURRENTLY");
+        }
+        q.push(';');
+        q
+    }
+}
+
+/// Parse every `#[index(name = "…", fields = "a, b", unique)]` on the struct.
+///
+/// Recognized options: `name` (str, required), `fields`/`columns` (comma-list,
+/// required), `unique` (flag), `search` (analyzer str), `hnsw`/`mtree` (int
+/// dimension) with optional `dist` (str), `raw` (verbatim trailing clause),
+/// `comment` (str), `concurrently` (flag), `overwrite` (flag — drop the guard).
+fn parse_index_attrs(attrs: &[syn::Attribute]) -> Vec<IndexAttr> {
+    use syn::parse::ParseStream;
+    let mut out = Vec::new();
+    for attr in attrs {
+        if !attr.path().is_ident("index") {
+            continue;
+        }
+        let Meta::List(ml) = &attr.meta else {
+            continue;
+        };
+        let parsed = ml.parse_args_with(|input: ParseStream| {
+            let mut name = String::new();
+            let mut fields = Vec::new();
+            let mut unique = false;
+            let mut search: Option<String> = None;
+            let mut vector: Option<(&'static str, u64)> = None; // (HNSW|MTREE, dim)
+            let mut dist: Option<String> = None;
+            let mut raw: Option<String> = None;
+            let mut comment: Option<String> = None;
+            let mut concurrently = false;
+            let mut if_not_exists = true;
+
+            while !input.is_empty() {
+                if input.peek(syn::Token![,]) {
+                    let _: syn::Token![,] = input.parse()?;
+                    continue;
+                }
+                let ident: syn::Ident = input.parse()?;
+                match ident.to_string().as_str() {
+                    "unique" => unique = true,
+                    "concurrently" => concurrently = true,
+                    "overwrite" => if_not_exists = false,
+                    "hnsw" | "mtree" => {
+                        let _: syn::Token![=] = input.parse()?;
+                        let n: syn::LitInt = input.parse()?;
+                        let kind = if ident == "hnsw" { "HNSW" } else { "MTREE" };
+                        vector = Some((kind, n.base10_parse()?));
+                    }
+                    key => {
+                        let _: syn::Token![=] = input.parse()?;
+                        let val: syn::LitStr = input.parse()?;
+                        let v = val.value();
+                        match key {
+                            "name" => name = v,
+                            "fields" | "columns" => {
+                                fields = v
+                                    .split(',')
+                                    .map(|s| s.trim().to_string())
+                                    .filter(|s| !s.is_empty())
+                                    .collect();
+                            }
+                            "search" => search = Some(v),
+                            "dist" => dist = Some(v),
+                            "raw" => raw = Some(v),
+                            "comment" => comment = Some(v),
+                            _ => {} // ignore unknown keys
+                        }
+                    }
+                }
+            }
+
+            // Tail precedence: raw > search > vector. `unique` is handled at render.
+            let tail = raw
+                .or_else(|| search.map(|a| format!("SEARCH ANALYZER {a}")))
+                .or_else(|| {
+                    vector.map(|(kind, dim)| match &dist {
+                        Some(d) => format!("{kind} DIMENSION {dim} DIST {d}"),
+                        None => format!("{kind} DIMENSION {dim}"),
+                    })
+                });
+
+            Ok(IndexAttr {
+                name,
+                fields,
+                unique,
+                tail,
+                comment,
+                concurrently,
+                if_not_exists,
+            })
+        });
+        if let Ok(ix) = parsed {
+            if !ix.name.is_empty() && !ix.fields.is_empty() {
+                out.push(ix);
+            }
+        }
+    }
+    out
+}
+
 fn find_field_attr(attrs: &[syn::Attribute], key: &str) -> Option<String> {
     for attr in attrs {
         if attr.path().is_ident("field") {
@@ -331,112 +493,87 @@ fn has_field_attr(attrs: &[syn::Attribute], key: &str) -> bool {
 
 /// SurrealQL type for a typed-column accessor (used by the query builder).
 fn type_to_surreal(ty: &syn::Type) -> String {
-    let s = quote!(#ty).to_string();
-    if s.contains("String") && !s.contains("Option") {
-        return "string".into();
-    }
-    if s.contains("String") && s.contains("Option") {
-        return "option<string>".into();
-    }
-    if s.contains("i64") {
-        return if s.contains("Option") {
-            "option<int>".into()
-        } else {
-            "int".into()
-        };
-    }
-    if s.contains("i32") {
-        return if s.contains("Option") {
-            "option<int>".into()
-        } else {
-            "int".into()
-        };
-    }
-    if s.contains("f64") {
-        return if s.contains("Option") {
-            "option<float>".into()
-        } else {
-            "float".into()
-        };
-    }
-    if s.contains("bool") {
-        return if s.contains("Option") {
-            "option<bool>".into()
-        } else {
-            "bool".into()
-        };
-    }
-    if s.contains("DateTime") || s.contains("Utc") {
-        return "datetime".into();
-    }
-    if s.contains("Uuid") {
-        return "uuid".into();
-    }
-    if s.contains("Thing") {
-        return "record".into();
-    }
-    if s.contains("Vec") || s.contains("Array") {
-        return "array".into();
-    }
-    if s.contains("HashMap") || s.contains("BTreeMap") {
-        return "object".into();
-    }
-    "object".into()
+    surreal_type_of(ty)
 }
 
-/// SurrealQL schema type for a `DEFINE FIELD`. Honors `#[field(record = "tbl")]`
-/// (→ `record<tbl>`) and wraps in `option<…>` for `Option<T>` fields.
+/// SurrealQL schema type for a `DEFINE FIELD`. A `#[field(record = "tbl")]`
+/// override forces `record<tbl>` (wrapped in `option<…>` for an `Option` field);
+/// otherwise the type is mapped structurally by [`surreal_type_of`].
 fn schema_type(ty: &syn::Type, record: Option<&str>, _flexible: bool) -> String {
-    let s = quote!(#ty).to_string();
-    let is_opt = s.contains("Option");
-    let inner = if let Some(tbl) = record {
-        format!("record<{tbl}>")
-    } else {
-        base_surreal_type(&s).to_string()
-    };
-    if is_opt {
-        format!("option<{inner}>")
-    } else {
-        inner
+    if let Some(tbl) = record {
+        let inner = format!("record<{tbl}>");
+        return if is_option(ty) {
+            format!("option<{inner}>")
+        } else {
+            inner
+        };
+    }
+    surreal_type_of(ty)
+}
+
+/// Recursively map a Rust type to its SurrealQL type name by inspecting the
+/// `syn::Type` structure (path segments + generic arguments) rather than
+/// substring-matching the stringified type. This makes nesting precise —
+/// `Option<Vec<String>>` → `option<array<string>>` — and avoids false matches
+/// from look-alike type names.
+fn surreal_type_of(ty: &syn::Type) -> String {
+    match ty {
+        syn::Type::Path(tp) => {
+            let Some(seg) = tp.path.segments.last() else {
+                return "object".into();
+            };
+            match seg.ident.to_string().as_str() {
+                "Option" => match first_generic(seg) {
+                    Some(inner) => format!("option<{}>", surreal_type_of(inner)),
+                    None => "object".into(),
+                },
+                "Vec" | "VecDeque" => match first_generic(seg) {
+                    Some(inner) => format!("array<{}>", surreal_type_of(inner)),
+                    None => "array".into(),
+                },
+                "HashSet" | "BTreeSet" => match first_generic(seg) {
+                    Some(inner) => format!("array<{}>", surreal_type_of(inner)),
+                    None => "array".into(),
+                },
+                "String" | "str" => "string".into(),
+                "bool" => "bool".into(),
+                "f32" | "f64" => "float".into(),
+                "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u16" | "u32" | "u64"
+                | "u128" | "usize" => "int".into(),
+                "u8" => "int".into(),
+                "Decimal" => "decimal".into(),
+                "Duration" => "duration".into(),
+                "Uuid" => "uuid".into(),
+                "DateTime" | "NaiveDateTime" | "NaiveDate" => "datetime".into(),
+                "Thing" | "RecordId" => "record".into(),
+                "HashMap" | "BTreeMap" => "object".into(),
+                // serde_json::Value and anything unrecognized → object.
+                _ => "object".into(),
+            }
+        }
+        syn::Type::Reference(r) => surreal_type_of(&r.elem),
+        syn::Type::Slice(s) => format!("array<{}>", surreal_type_of(&s.elem)),
+        syn::Type::Array(a) => format!("array<{}>", surreal_type_of(&a.elem)),
+        syn::Type::Group(g) => surreal_type_of(&g.elem),
+        syn::Type::Paren(p) => surreal_type_of(&p.elem),
+        _ => "object".into(),
     }
 }
 
-/// Base SurrealQL scalar/compound type, ignoring any `Option<…>` wrapper.
-fn base_surreal_type(s: &str) -> &'static str {
-    if s.contains("String") {
-        return "string";
+/// The first generic type argument of a path segment (e.g. the `T` in `Vec<T>`).
+fn first_generic(seg: &syn::PathSegment) -> Option<&syn::Type> {
+    if let syn::PathArguments::AngleBracketed(ab) = &seg.arguments {
+        for arg in &ab.args {
+            if let syn::GenericArgument::Type(t) = arg {
+                return Some(t);
+            }
+        }
     }
-    if s.contains("Uuid") {
-        return "uuid";
-    }
-    if s.contains("DateTime") || s.contains("Utc") {
-        return "datetime";
-    }
-    if s.contains("bool") {
-        return "bool";
-    }
-    if s.contains("f64") || s.contains("f32") {
-        return "float";
-    }
-    if s.contains("i8")
-        || s.contains("i16")
-        || s.contains("i32")
-        || s.contains("i64")
-        || s.contains("u8")
-        || s.contains("u16")
-        || s.contains("u32")
-        || s.contains("u64")
-        || s.contains("usize")
-        || s.contains("isize")
-    {
-        return "int";
-    }
-    if s.contains("Thing") {
-        return "record";
-    }
-    if s.contains("Vec") || s.contains("Array") {
-        return "array";
-    }
-    // serde_json::Value, HashMap/BTreeMap, and anything unrecognized → object.
-    "object"
+    None
+}
+
+/// Whether the outermost type constructor is `Option`.
+fn is_option(ty: &syn::Type) -> bool {
+    matches!(ty, syn::Type::Path(tp)
+        if tp.path.segments.last().is_some_and(|s| s.ident == "Option"))
 }

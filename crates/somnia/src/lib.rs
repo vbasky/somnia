@@ -41,7 +41,10 @@ pub use somnia_core::{
     col,
     expr::{Column, ColumnMeta, ColumnSet, DynExpr, Order, Path, SurrealQL},
     field, ident,
-    query::{Batch, Create, Delete, Insert, Relate, RelateEdge, Returning, Select, Table, Update},
+    query::{
+        Batch, Create, DefineIndex, Delete, Insert, Relate, RelateEdge, Returning, Select, Table,
+        Update,
+    },
     types::{Key, SurrealEdge, SurrealRecord, SurrealSchema, Thing},
     DynExprBox, Func, Grouped, Ident, NoneLit, Projection, Raw, RecordLink,
 };

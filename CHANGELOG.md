@@ -10,6 +10,39 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-06-20
+
+Completes the **P1** roadmap tier. Every change is API-additive (new builders,
+methods, a defaulted trait method, and new `SurrealQL` impls), so this stays a
+patch release; the only behavioral shift is that collection fields now emit a
+more precise `array<…>` type in generated DDL.
+
+### Added (0.5.2)
+
+- **Recursive graph paths** — the `Path` node gained `recurse_all()` (`@.{..}`),
+  `recurse_up_to(n)` (`@.{..n}`), `recurse_range(min, max)` (`@.{min..max}`), and
+  `recurse_exact(n)` (`@.{n}`), rendering SurrealDB's recursive traversal syntax
+  (relative `@.{…}` or, with `from_record`, record-anchored). Validated against a
+  live in-memory engine.
+- **`DEFINE INDEX`** — a runtime `DefineIndex` builder (plain, composite,
+  `unique()`, `search(analyzer)`, `hnsw`/`mtree` vector, `comment`,
+  `concurrently`, `overwrite`, and `DefineIndex::remove`) plus a repeatable derive
+  attribute `#[index(name = "…", fields = "a, b", unique)]`. Derived indexes flow
+  into the new `SurrealSchema::define_indexes()` and are emitted by `up()` after
+  the field definitions. A live test confirms a `UNIQUE` index rejects duplicates.
+- **Richer field types** — the derive maps Rust types via real recursive
+  `syn::Type` analysis instead of substring matching: typed arrays
+  (`Vec<T>`/`VecDeque`/`HashSet`/slices → `array<…>`), arrays of records, nested
+  `Option`, `duration`, and `decimal`. Adds `SurrealQL` literal impls for
+  `Vec<T>` (renders `[…]`) and `std::time::Duration` (renders e.g. `1s500000000ns`).
+
+### Changed (0.5.2)
+
+- `SurrealSchema` gained a defaulted `define_indexes()` method; existing manual
+  implementations are unaffected.
+- The derive emits a precise `array<…>` element type for collection fields
+  (previously a bare `array`). Generated DDL only; no Rust API change.
+
 ## [0.5.1] - 2026-06-20
 
 ### Changed (0.5.1)

@@ -91,6 +91,111 @@ DEFINE FIELD IF NOT EXISTS created_at ON TABLE asset_version TYPE datetime DEFAU
         );
     }
 
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, SurrealRecord)]
+    #[table("member")]
+    #[index(name = "member_email_unique", fields = "email", unique)]
+    #[index(name = "member_name_idx", fields = "first_name, last_name")]
+    #[allow(dead_code)]
+    struct Member {
+        #[field(thing)]
+        id: Thing<Member>,
+        email: String,
+        first_name: String,
+        last_name: String,
+    }
+
+    #[test]
+    fn index_attrs_emit_define_index_ddl() {
+        assert_eq!(
+            Member::define_indexes(),
+            &[
+                "DEFINE INDEX IF NOT EXISTS member_email_unique ON TABLE member FIELDS email UNIQUE;",
+                "DEFINE INDEX IF NOT EXISTS member_name_idx ON TABLE member FIELDS first_name, last_name;",
+            ]
+        );
+        // up() appends indexes after the field definitions.
+        let up = Member::up();
+        let fields_end = up.find("DEFINE INDEX").unwrap();
+        assert!(up[..fields_end]
+            .contains("DEFINE FIELD IF NOT EXISTS email ON TABLE member TYPE string;"));
+        assert!(up.ends_with("FIELDS first_name, last_name;"));
+    }
+
+    #[test]
+    fn indexes_apply_and_enforce_on_live_surreal() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let db = surrealdb::engine::any::connect("mem://").await.unwrap();
+            db.use_ns("t").use_db("t").await.unwrap();
+            db.query(Member::up()).await.unwrap().check().unwrap();
+
+            // First insert with a given email succeeds.
+            db.query("CREATE member SET email = 'a@x.com', first_name = 'A', last_name = 'B';")
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            // A second insert with the same email must violate the UNIQUE index.
+            let dup = db
+                .query("CREATE member SET email = 'a@x.com', first_name = 'C', last_name = 'D';")
+                .await
+                .unwrap()
+                .check();
+            assert!(
+                dup.is_err(),
+                "UNIQUE index should reject the duplicate email"
+            );
+        });
+    }
+
+    // Exercises the recursive type mapper: typed arrays, arrays of records,
+    // nested Option, and duration.
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, SurrealRecord)]
+    #[table("catalog")]
+    #[allow(dead_code)]
+    struct Catalog {
+        #[field(thing)]
+        id: Thing<Catalog>,
+        tags: Vec<String>,
+        scores: Vec<i64>,
+        owners: Vec<Thing<Member>>,
+        nicknames: Option<Vec<String>>,
+        ttl: std::time::Duration,
+    }
+
+    #[test]
+    fn richer_type_mapping_emits_precise_field_types() {
+        assert_eq!(
+            Catalog::define_fields(),
+            &[
+                "DEFINE FIELD IF NOT EXISTS tags ON TABLE catalog TYPE array<string>;",
+                "DEFINE FIELD IF NOT EXISTS scores ON TABLE catalog TYPE array<int>;",
+                "DEFINE FIELD IF NOT EXISTS owners ON TABLE catalog TYPE array<record>;",
+                "DEFINE FIELD IF NOT EXISTS nicknames ON TABLE catalog TYPE option<array<string>>;",
+                "DEFINE FIELD IF NOT EXISTS ttl ON TABLE catalog TYPE duration;",
+            ]
+        );
+    }
+
+    #[test]
+    fn richer_types_apply_on_live_surreal() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let db = surrealdb::engine::any::connect("mem://").await.unwrap();
+            db.use_ns("t").use_db("t").await.unwrap();
+            db.query(Catalog::up()).await.unwrap().check().unwrap();
+            // A write satisfying every typed field must succeed under SCHEMAFULL.
+            db.query(
+                "CREATE catalog SET tags = ['a', 'b'], scores = [1, 2], \
+                 owners = [member:x], nicknames = NONE, ttl = 1s500ms;",
+            )
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        });
+    }
+
     #[test]
     fn up_down_round_trips_against_live_surreal() {
         // The generated DDL must actually apply (and reverse) on SurrealDB 3.x.

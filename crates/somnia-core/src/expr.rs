@@ -182,6 +182,48 @@ impl<T: SurrealQL> SurrealQL for Option<T> {
     }
 }
 
+impl<V: SurrealQL> SurrealQL for Vec<V> {
+    fn surreal_type() -> &'static str {
+        // The element type is lost at this level; the derive emits the precise
+        // `array<…>` for `DEFINE FIELD`. This hint is informational only.
+        "array"
+    }
+    fn render_literal(value: &Self, buf: &mut String) {
+        buf.push('[');
+        for (i, v) in value.iter().enumerate() {
+            if i > 0 {
+                buf.push_str(", ");
+            }
+            V::render_literal(v, buf);
+        }
+        buf.push(']');
+    }
+}
+
+impl SurrealQL for std::time::Duration {
+    fn surreal_type() -> &'static str {
+        "duration"
+    }
+    fn render_literal(value: &Self, buf: &mut String) {
+        use std::fmt::Write;
+        // SurrealDB duration literal: a concatenation of unit-tagged components
+        // (e.g. `1s500ms`). Whole seconds + sub-second nanoseconds round-trips any
+        // `Duration` and parses cleanly.
+        let secs = value.as_secs();
+        let nanos = value.subsec_nanos();
+        if secs == 0 && nanos == 0 {
+            buf.push_str("0ns");
+            return;
+        }
+        if secs > 0 {
+            let _ = write!(buf, "{secs}s");
+        }
+        if nanos > 0 {
+            let _ = write!(buf, "{nanos}ns");
+        }
+    }
+}
+
 impl<T: crate::types::SurrealRecord> SurrealQL for crate::types::Thing<T> {
     fn surreal_type() -> &'static str {
         "record"
@@ -476,6 +518,7 @@ enum Tail {
 #[derive(Debug)]
 pub struct Path {
     start: Option<Box<dyn DynExpr>>,
+    recurse: Option<String>,
     steps: Vec<Step>,
     tail: Option<Tail>,
 }
@@ -484,6 +527,7 @@ impl Path {
     fn from_step(dir: Dir, edge: &'static str) -> Self {
         Self {
             start: None,
+            recurse: None,
             steps: vec![Step {
                 dir,
                 edge,
@@ -586,6 +630,29 @@ impl Path {
         self
     }
 
+    /// Repeat the path recursively, unbounded — `@.{..}<path>`. Combine with
+    /// [`from_record`](Self::from_record) to anchor the recursion at a record
+    /// (`person:tobie.{..}->knows->person`).
+    pub fn recurse_all(mut self) -> Self {
+        self.recurse = Some("..".to_string());
+        self
+    }
+    /// Recurse up to `max` hops — `@.{..max}<path>`.
+    pub fn recurse_up_to(mut self, max: u32) -> Self {
+        self.recurse = Some(format!("..{max}"));
+        self
+    }
+    /// Recurse between `min` and `max` hops — `@.{min..max}<path>`.
+    pub fn recurse_range(mut self, min: u32, max: u32) -> Self {
+        self.recurse = Some(format!("{min}..{max}"));
+        self
+    }
+    /// Recurse exactly `n` hops — `@.{n}<path>`.
+    pub fn recurse_exact(mut self, n: u32) -> Self {
+        self.recurse = Some(format!("{n}"));
+        self
+    }
+
     /// Append a field accessor — `<path>.field`.
     pub fn field(mut self, name: impl Into<String>) -> Self {
         self.tail = Some(Tail::Field(name.into()));
@@ -615,8 +682,23 @@ impl Path {
 
 impl DynExpr for Path {
     fn render_dyn(&self, buf: &mut String) {
-        if let Some(start) = &self.start {
-            start.render_dyn(buf);
+        match (&self.start, &self.recurse) {
+            // anchored recursion: `<record>.{range}<path>`
+            (Some(start), Some(range)) => {
+                start.render_dyn(buf);
+                buf.push_str(".{");
+                buf.push_str(range);
+                buf.push('}');
+            }
+            // relative recursion: `@.{range}<path>` (the `@` is the recursion point)
+            (None, Some(range)) => {
+                buf.push_str("@.{");
+                buf.push_str(range);
+                buf.push('}');
+            }
+            // no recursion: optional record anchor, then the hops
+            (Some(start), None) => start.render_dyn(buf),
+            (None, None) => {}
         }
         for step in &self.steps {
             step.render(buf);

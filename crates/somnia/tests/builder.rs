@@ -5,8 +5,8 @@
 #[cfg(test)]
 mod tests {
     use somnia::{
-        col, field, ident, Batch, Grouped, NoneLit, Path, Raw, RecordLink, Returning, SurrealEdge,
-        SurrealRecord, Thing,
+        col, field, ident, Batch, DefineIndex, Grouped, NoneLit, Path, Raw, RecordLink, Returning,
+        SurrealEdge, SurrealRecord, Thing,
     };
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, SurrealRecord)]
@@ -480,6 +480,119 @@ mod tests {
             sql,
             "SELECT name FROM user WHERE ->wrote->post CONTAINS post:p1"
         );
+    }
+
+    // ─── DEFINE INDEX ────────────────────────────────────────────────────────
+
+    #[test]
+    fn index_unique_single_field() {
+        assert_eq!(
+            DefineIndex::new("email_idx", "user")
+                .field("email")
+                .unique()
+                .to_surrealql(),
+            "DEFINE INDEX IF NOT EXISTS email_idx ON TABLE user FIELDS email UNIQUE"
+        );
+    }
+
+    #[test]
+    fn index_composite_plain() {
+        assert_eq!(
+            DefineIndex::new("name_idx", "user")
+                .fields(["first", "last"])
+                .to_surrealql(),
+            "DEFINE INDEX IF NOT EXISTS name_idx ON TABLE user FIELDS first, last"
+        );
+    }
+
+    #[test]
+    fn index_hnsw_vector() {
+        assert_eq!(
+            DefineIndex::new("emb_idx", "doc")
+                .field("embedding")
+                .hnsw(128, "COSINE")
+                .to_surrealql(),
+            "DEFINE INDEX IF NOT EXISTS emb_idx ON TABLE doc FIELDS embedding HNSW DIMENSION 128 DIST COSINE"
+        );
+    }
+
+    #[test]
+    fn index_search_comment_overwrite_concurrently() {
+        assert_eq!(
+            DefineIndex::new("bio_idx", "user")
+                .field("bio")
+                .search("ascii")
+                .comment("full text")
+                .overwrite()
+                .concurrently()
+                .to_surrealql(),
+            "DEFINE INDEX bio_idx ON TABLE user FIELDS bio SEARCH ANALYZER ascii COMMENT 'full text' CONCURRENTLY"
+        );
+    }
+
+    // ─── Richer literal rendering (Vec, Duration) ────────────────────────────
+
+    #[test]
+    fn vec_literal_renders_as_array() {
+        let sql = SystemSetting::table()
+            .project(vec![col("key")])
+            .filter(ident("tags").eq(vec!["a".to_string(), "b".to_string()]))
+            .to_surrealql();
+        assert_eq!(
+            sql,
+            "SELECT key FROM system_settings WHERE tags = ['a', 'b']"
+        );
+    }
+
+    #[test]
+    fn duration_literal_renders_with_units() {
+        use std::time::Duration;
+        let render = |d: Duration| {
+            let mut b = String::new();
+            somnia_core::expr::SurrealQL::render_literal(&d, &mut b);
+            b
+        };
+        assert_eq!(render(Duration::from_secs(2)), "2s");
+        assert_eq!(render(Duration::from_millis(1500)), "1s500000000ns");
+        assert_eq!(render(Duration::from_nanos(0)), "0ns");
+    }
+
+    #[test]
+    fn index_remove() {
+        assert_eq!(
+            DefineIndex::remove("email_idx", "user"),
+            "REMOVE INDEX IF EXISTS email_idx ON TABLE user"
+        );
+    }
+
+    #[test]
+    fn path_recurse_relative() {
+        assert_eq!(
+            render(Path::out::<Wrote>().to::<Post>().recurse_up_to(3)),
+            "@.{..3}->wrote->post"
+        );
+        assert_eq!(
+            render(Path::out::<Wrote>().to::<Post>().recurse_all()),
+            "@.{..}->wrote->post"
+        );
+        assert_eq!(
+            render(Path::out::<Wrote>().to::<Post>().recurse_range(1, 2)),
+            "@.{1..2}->wrote->post"
+        );
+        assert_eq!(
+            render(Path::out::<Wrote>().to::<Post>().recurse_exact(2)),
+            "@.{2}->wrote->post"
+        );
+    }
+
+    #[test]
+    fn path_recurse_anchored_to_record() {
+        let tobie: Thing<User> = Thing::new("tobie");
+        let p = Path::out::<Wrote>()
+            .to::<Post>()
+            .from_record(tobie)
+            .recurse_up_to(3);
+        assert_eq!(render(p), "user:tobie.{..3}->wrote->post");
     }
 
     #[test]

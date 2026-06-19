@@ -816,3 +816,156 @@ impl<E: SurrealEdge> RelateEdge<E> {
         q
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DEFINE INDEX
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// The kind of a `DEFINE INDEX` — what trails the field list.
+enum IndexKind {
+    /// a plain (non-unique) index — no trailing clause
+    Plain,
+    /// `UNIQUE`
+    Unique,
+    /// a verbatim trailing clause, e.g. `SEARCH ANALYZER ascii BM25 HIGHLIGHTS`
+    /// or `HNSW DIMENSION 128 DIST COSINE` — the escape hatch for full-text and
+    /// vector indexes whose exact options depend on the engine build.
+    Raw(String),
+}
+
+/// Builds a `DEFINE INDEX` statement — plain, composite, `UNIQUE`, full-text
+/// (`SEARCH`), or vector (`HNSW`/`MTREE`) indexes.
+///
+/// ```ignore
+/// // DEFINE INDEX IF NOT EXISTS email_idx ON TABLE user FIELDS email UNIQUE
+/// DefineIndex::new("email_idx", "user").field("email").unique().to_surrealql();
+///
+/// // composite, vector
+/// DefineIndex::new("name_idx", "user").fields(["first", "last"]).to_surrealql();
+/// DefineIndex::new("emb_idx", "doc").field("embedding").hnsw(128, "COSINE").to_surrealql();
+/// ```
+pub struct DefineIndex {
+    name: String,
+    table: String,
+    fields: Vec<String>,
+    kind: IndexKind,
+    if_not_exists: bool,
+    comment: Option<String>,
+    concurrently: bool,
+}
+
+impl DefineIndex {
+    /// Begin `DEFINE INDEX IF NOT EXISTS <name> ON TABLE <table>`.
+    pub fn new(name: impl Into<String>, table: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            table: table.into(),
+            fields: Vec::new(),
+            kind: IndexKind::Plain,
+            if_not_exists: true,
+            comment: None,
+            concurrently: false,
+        }
+    }
+
+    /// Add one indexed field/column.
+    pub fn field(mut self, name: impl Into<String>) -> Self {
+        self.fields.push(name.into());
+        self
+    }
+    /// Add several indexed fields/columns (a composite index).
+    pub fn fields<I, S>(mut self, names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.fields.extend(names.into_iter().map(Into::into));
+        self
+    }
+
+    /// Mark the index `UNIQUE`.
+    pub fn unique(mut self) -> Self {
+        self.kind = IndexKind::Unique;
+        self
+    }
+    /// A full-text `SEARCH ANALYZER <analyzer>` index. Append further options
+    /// (`BM25`, `HIGHLIGHTS`, …) with [`raw`](Self::raw) if your engine needs them.
+    pub fn search(mut self, analyzer: &str) -> Self {
+        self.kind = IndexKind::Raw(format!("SEARCH ANALYZER {analyzer}"));
+        self
+    }
+    /// An `HNSW` vector index of the given dimension and distance function
+    /// (e.g. `"COSINE"`, `"EUCLIDEAN"`).
+    pub fn hnsw(mut self, dimension: u32, dist: &str) -> Self {
+        self.kind = IndexKind::Raw(format!("HNSW DIMENSION {dimension} DIST {dist}"));
+        self
+    }
+    /// An `MTREE` vector index of the given dimension and distance function.
+    pub fn mtree(mut self, dimension: u32, dist: &str) -> Self {
+        self.kind = IndexKind::Raw(format!("MTREE DIMENSION {dimension} DIST {dist}"));
+        self
+    }
+    /// Set a verbatim trailing clause (the escape hatch for index options somnia
+    /// doesn't model), e.g. `"SEARCH ANALYZER ascii BM25 HIGHLIGHTS"`.
+    pub fn raw(mut self, tail: impl Into<String>) -> Self {
+        self.kind = IndexKind::Raw(tail.into());
+        self
+    }
+
+    /// Drop the `IF NOT EXISTS` guard.
+    pub fn overwrite(mut self) -> Self {
+        self.if_not_exists = false;
+        self
+    }
+    /// Attach a `COMMENT '<text>'`.
+    pub fn comment(mut self, text: impl Into<String>) -> Self {
+        self.comment = Some(text.into());
+        self
+    }
+    /// Build the index `CONCURRENTLY` (non-blocking).
+    pub fn concurrently(mut self) -> Self {
+        self.concurrently = true;
+        self
+    }
+
+    pub fn to_surrealql(&self) -> String {
+        let guard = if self.if_not_exists {
+            "IF NOT EXISTS "
+        } else {
+            ""
+        };
+        let mut q = format!(
+            "DEFINE INDEX {guard}{} ON TABLE {} FIELDS {}",
+            self.name,
+            self.table,
+            self.fields.join(", "),
+        );
+        match &self.kind {
+            IndexKind::Plain => {}
+            IndexKind::Unique => q.push_str(" UNIQUE"),
+            IndexKind::Raw(tail) => {
+                q.push(' ');
+                q.push_str(tail);
+            }
+        }
+        if let Some(c) = &self.comment {
+            let escaped = c.replace('\\', "\\\\").replace('\'', "\\'");
+            q.push_str(&format!(" COMMENT '{escaped}'"));
+        }
+        if self.concurrently {
+            q.push_str(" CONCURRENTLY");
+        }
+        q
+    }
+
+    /// `REMOVE INDEX IF EXISTS <name> ON TABLE <table>` — the inverse statement.
+    pub fn remove(name: &str, table: &str) -> String {
+        format!("REMOVE INDEX IF EXISTS {name} ON TABLE {table}")
+    }
+}
+
+impl std::fmt::Display for DefineIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_surrealql())
+    }
+}
