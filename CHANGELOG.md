@@ -10,6 +10,12 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+### Changed
+
+- **README** — documented the P1 features shipped through 0.5.2: a graph-traversal
+  example (`Path`, recursive paths), the `#[index(...)]` derive attribute and
+  `DefineIndex` builder, and the richer field-type mapping. Docs only.
+
 ## [0.5.2] - 2026-06-20
 
 Completes the **P1** roadmap tier. Every change is API-additive (new builders,

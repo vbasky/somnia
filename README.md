@@ -30,10 +30,12 @@ unescaped values, record-link mistakes, and projection drift. `somnia` lets your
 Rust types describe the schema once and gives you:
 
 - **Typed query building** — `Post::table().select(...).filter(Post::title().eq("hello"))`
+- **Graph traversal** — query across `RELATE` edges with typed paths
+  (`Path::out::<Wrote>().to::<Post>()`), including recursive `@.{..}` paths.
 - **`#[derive(SurrealRecord)]`** — typed column accessors, table metadata, and
   schema DDL generated from the struct.
 - **Schema as code** — `up()` / `down()` emit `DEFINE TABLE` / `DEFINE FIELD` /
-  `REMOVE TABLE` from the Rust type.
+  `DEFINE INDEX` / `REMOVE TABLE` from the Rust type.
 - **Diesel-style migrations** — a `Migrator` that applies `up.surql` /
   reverts `down.surql` from timestamped folders, with applied-state tracking.
 
@@ -119,6 +121,19 @@ let del = Post::table()
     .filter(ident("id").eq_expr(RecordLink::new("post", "post-1".to_string())))
     .returning(Returning::Before)
     .to_surrealql();
+
+// Graph traversal across RELATE edges (`Wrote`/`Knows` are `SurrealEdge` types)
+use somnia::Path;
+
+// SELECT ->wrote->post.title AS titles FROM author
+let titles = Author::table()
+    .project_path(Path::out::<Wrote>().to::<Post>().field("title"), "titles")
+    .to_surrealql();
+
+// Recursive paths: every author within 3 "knows" hops
+let network = Author::table()
+    .project_path(Path::out::<Knows>().to::<Author>().recurse_up_to(3), "network")
+    .to_surrealql();
 ```
 
 For SurrealQL that isn't modeled as typed nodes (lambdas, `IF/THEN/ELSE`,
@@ -149,6 +164,25 @@ Field attributes: `#[field(thing)]` (record id), `record = "table"`
 (`record<table>`), `default = "…"`, `value = "…"`, `ty = "…"` (full type
 override), `flexible`, `name = "…"`, `skip`. Table attributes:
 `#[table("name")]`, `#[table("name", schemaless, permissions = "NONE")]`.
+
+Field types are mapped from the Rust type — including typed arrays
+(`Vec<T>` → `array<…>`), `Option<…>`, records, `duration`, and `decimal`.
+
+Add indexes with a repeatable container attribute; they're emitted by `up()`
+(after the fields) and exposed via `SurrealSchema::define_indexes()`:
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealRecord)]
+#[table("member")]
+#[index(name = "member_email_unique", fields = "email", unique)]
+struct Member {
+    #[field(thing)] id: Thing<Member>,
+    email: String,
+}
+```
+
+For ad-hoc or richer indexes (full-text `SEARCH`, vector `HNSW`/`MTREE`), use the
+`DefineIndex` builder directly.
 
 ### Migrations
 
