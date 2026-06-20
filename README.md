@@ -8,6 +8,8 @@
 [![MSRV](https://img.shields.io/badge/MSRV-1.95-blue.svg)](#status)
 [![license](https://img.shields.io/crates/l/somnia.svg)](#license)
 [![Read the write-up](https://img.shields.io/badge/Medium-Read%20the%20write--up-black?logo=medium&logoColor=white)](https://medium.com/@vbasky/somnia-a-type-safe-orm-for-surrealdb-that-feels-like-diesel-7341d49bd5c4)
+[![Stars](https://img.shields.io/github/stars/vbasky/somnia?style=social)](https://github.com/vbasky/somnia/stargazers)
+[![Follow @vbasky](https://img.shields.io/github/followers/vbasky?style=social&label=Follow%20%40vbasky)](https://github.com/vbasky)
 
 **A type-safe [SurrealDB](https://surrealdb.com) ORM for Rust** — a typed query
 builder, a `#[derive(SurrealRecord)]` macro, schema generation, and Diesel-style
