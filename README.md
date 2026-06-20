@@ -3,6 +3,7 @@
 ![somnia — type-safe SurrealDB ORM for Rust](docs/banner.png)
 
 [![crates.io](https://img.shields.io/crates/v/somnia.svg)](https://crates.io/crates/somnia)
+[![Downloads](https://img.shields.io/crates/d/somnia.svg)](https://crates.io/crates/somnia)
 [![docs.rs](https://img.shields.io/docsrs/somnia)](https://docs.rs/somnia)
 [![CI](https://github.com/vbasky/somnia/actions/workflows/ci.yml/badge.svg)](https://github.com/vbasky/somnia/actions/workflows/ci.yml)
 [![MSRV](https://img.shields.io/badge/MSRV-1.95-blue.svg)](#status)
