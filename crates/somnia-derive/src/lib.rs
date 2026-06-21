@@ -58,6 +58,9 @@ use syn::{parse_macro_input, Data, DeriveInput, Fields, Meta};
 /// | `#[field(ty = "…")]` | override the full SurrealQL field type |
 /// | `#[field(default = "…")]` | `DEFAULT …` clause |
 /// | `#[field(value = "…")]` | `VALUE …` clause |
+/// | `#[field(assert = "…")]` | `ASSERT …` validation expression |
+/// | `#[field(readonly)]` | mark the field `READONLY` |
+/// | `#[field(permissions = "…")]` | `PERMISSIONS …` clause (e.g. `FOR select FULL FOR update NONE`) |
 /// | `#[field(flexible)]` | mark the field `FLEXIBLE` |
 /// | `#[field(name = "…")]` | use a DB column name different from the Rust field |
 /// | `#[field(skip)]` | omit the field entirely |
@@ -134,6 +137,9 @@ pub fn derive_surreal_record(input: TokenStream) -> TokenStream {
             default: find_field_attr(&field.attrs, "default"),
             value: find_field_attr(&field.attrs, "value"),
             flexible: has_field_attr(&field.attrs, "flexible"),
+            assert: find_field_attr(&field.attrs, "assert"),
+            readonly: has_field_attr(&field.attrs, "readonly"),
+            permissions: find_field_attr(&field.attrs, "permissions"),
         });
     }
 
@@ -189,9 +195,12 @@ pub fn derive_surreal_record(input: TokenStream) -> TokenStream {
             };
             let flex = if f.flexible { "FLEXIBLE " } else { "" };
             let default = f.default.as_ref().map(|d| format!(" DEFAULT {d}")).unwrap_or_default();
+            let readonly = if f.readonly { " READONLY" } else { "" };
             let value = f.value.as_ref().map(|v| format!(" VALUE {v}")).unwrap_or_default();
+            let assert = f.assert.as_ref().map(|a| format!(" ASSERT {a}")).unwrap_or_default();
+            let permissions = f.permissions.as_ref().map(|p| format!(" PERMISSIONS {p}")).unwrap_or_default();
             format!(
-                "DEFINE FIELD IF NOT EXISTS {} ON TABLE {table_name} {flex}TYPE {ty}{default}{value};",
+                "DEFINE FIELD IF NOT EXISTS {} ON TABLE {table_name} {flex}TYPE {ty}{default}{readonly}{value}{assert}{permissions};",
                 f.db_name,
             )
         })
@@ -238,6 +247,9 @@ struct FieldDef {
     default: Option<String>,
     value: Option<String>,
     flexible: bool,
+    assert: Option<String>,
+    readonly: bool,
+    permissions: Option<String>,
 }
 
 /// Parsed `#[table(...)]` options.

@@ -5,8 +5,9 @@
 #[cfg(test)]
 mod tests {
     use somnia::{
-        col, field, ident, Batch, DefineIndex, Grouped, NoneLit, Path, Raw, RecordLink, Returning,
-        SurrealEdge, SurrealRecord, Thing, Transaction,
+        col, field, ident, Batch, DefineAnalyzer, DefineEvent, DefineFunction, DefineIndex,
+        DefineParam, Grouped, NoneLit, Path, Raw, RecordLink, Returning, SurrealEdge,
+        SurrealRecord, Thing, Transaction,
     };
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, SurrealRecord)]
@@ -800,6 +801,65 @@ mod tests {
             DefineIndex::remove("email_idx", "user"),
             "REMOVE INDEX IF EXISTS email_idx ON TABLE user"
         );
+    }
+
+    // ─── DEFINE EVENT / FUNCTION / ANALYZER / PARAM ────────────────────────────
+
+    #[test]
+    fn define_event() {
+        assert_eq!(
+            DefineEvent::new("on_publish", "post")
+                .when("$event = 'UPDATE'")
+                .then("{ CREATE log SET at = time::now() }")
+                .to_surrealql(),
+            "DEFINE EVENT IF NOT EXISTS on_publish ON TABLE post WHEN $event = 'UPDATE' THEN { CREATE log SET at = time::now() }"
+        );
+        assert_eq!(
+            DefineEvent::remove("on_publish", "post"),
+            "REMOVE EVENT IF EXISTS on_publish ON TABLE post"
+        );
+    }
+
+    #[test]
+    fn define_function() {
+        assert_eq!(
+            DefineFunction::new("greet")
+                .arg("name", "string")
+                .returns("string")
+                .body("RETURN 'hi ' + $name;")
+                .to_surrealql(),
+            "DEFINE FUNCTION IF NOT EXISTS fn::greet($name: string) -> string { RETURN 'hi ' + $name; }"
+        );
+        assert_eq!(
+            DefineFunction::remove("greet"),
+            "REMOVE FUNCTION IF EXISTS fn::greet"
+        );
+    }
+
+    #[test]
+    fn define_analyzer() {
+        assert_eq!(
+            DefineAnalyzer::new("ascii")
+                .tokenizers(["class"])
+                .filters(["lowercase", "ascii"])
+                .to_surrealql(),
+            "DEFINE ANALYZER IF NOT EXISTS ascii TOKENIZERS class FILTERS lowercase, ascii"
+        );
+    }
+
+    #[test]
+    fn define_param() {
+        assert_eq!(
+            DefineParam::new("rate", "0.5").to_surrealql(),
+            "DEFINE PARAM IF NOT EXISTS $rate VALUE 0.5"
+        );
+        assert_eq!(
+            DefineParam::new("greeting", "")
+                .value_lit("hi".to_string())
+                .to_surrealql(),
+            "DEFINE PARAM IF NOT EXISTS $greeting VALUE 'hi'"
+        );
+        assert_eq!(DefineParam::remove("rate"), "REMOVE PARAM IF EXISTS $rate");
     }
 
     #[test]

@@ -5,7 +5,10 @@
 
 #[cfg(test)]
 mod tests {
-    use somnia::{SurrealRecord, SurrealSchema, Thing, Transaction};
+    use somnia::{
+        DefineAnalyzer, DefineEvent, DefineFunction, DefineParam, SurrealRecord, SurrealSchema,
+        Thing, Transaction,
+    };
 
     // Mirrors the `asset_version` table from migration 027 — the Rust type is now
     // the single source of truth for that schema.
@@ -145,6 +148,103 @@ DEFINE FIELD IF NOT EXISTS created_at ON TABLE asset_version TYPE datetime DEFAU
                 dup.is_err(),
                 "UNIQUE index should reject the duplicate email"
             );
+        });
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, SurrealRecord)]
+    #[table("account")]
+    #[allow(dead_code)]
+    struct Account {
+        #[field(thing)]
+        id: Thing<Account>,
+        #[field(assert = "$value >= 0")]
+        balance: i64,
+        #[field(readonly)]
+        created_by: String,
+        #[field(permissions = "FOR select NONE")]
+        secret: String,
+    }
+
+    #[test]
+    fn field_assert_readonly_permissions_ddl() {
+        assert_eq!(
+            Account::define_fields(),
+            &[
+                "DEFINE FIELD IF NOT EXISTS balance ON TABLE account TYPE int ASSERT $value >= 0;",
+                "DEFINE FIELD IF NOT EXISTS created_by ON TABLE account TYPE string READONLY;",
+                "DEFINE FIELD IF NOT EXISTS secret ON TABLE account TYPE string PERMISSIONS FOR select NONE;",
+            ]
+        );
+    }
+
+    #[test]
+    fn field_attrs_apply_on_live_surreal() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let db = surrealdb::engine::any::connect("mem://").await.unwrap();
+            db.use_ns("t").use_db("t").await.unwrap();
+            db.query(Account::up()).await.unwrap().check().unwrap();
+            // A valid row applies.
+            db.query("CREATE account SET balance = 10, created_by = 'me', secret = 's';")
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            // ASSERT rejects a negative balance.
+            let bad = db
+                .query("CREATE account SET balance = -1, created_by = 'me', secret = 's';")
+                .await
+                .unwrap()
+                .check();
+            assert!(bad.is_err(), "ASSERT $value >= 0 should reject -1");
+        });
+    }
+
+    #[test]
+    fn standalone_ddl_builders_apply_on_live_surreal() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let db = surrealdb::engine::any::connect("mem://").await.unwrap();
+            db.use_ns("t").use_db("t").await.unwrap();
+            db.query("DEFINE TABLE post SCHEMALESS;")
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+
+            for ddl in [
+                DefineAnalyzer::new("ascii")
+                    .tokenizers(["class"])
+                    .filters(["lowercase", "ascii"])
+                    .to_surrealql(),
+                DefineParam::new("rate", "0.5").to_surrealql(),
+                DefineFunction::new("greet")
+                    .arg("name", "string")
+                    .returns("string")
+                    .body("RETURN 'hi ' + $name;")
+                    .to_surrealql(),
+                DefineEvent::new("on_post", "post")
+                    .when("$event = 'CREATE'")
+                    .then("{ CREATE log SET at = time::now() }")
+                    .to_surrealql(),
+            ] {
+                db.query(&ddl).await.unwrap().check().unwrap();
+            }
+
+            // The function is callable.
+            let mut res = db
+                .query("RETURN fn::greet('world');")
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            let out: Option<String> = res.take(0).unwrap();
+            assert_eq!(out.as_deref(), Some("hi world"));
+
+            // The param resolves to its defined value.
+            let mut res = db.query("RETURN $rate;").await.unwrap().check().unwrap();
+            let rate: Option<f64> = res.take(0).unwrap();
+            assert_eq!(rate, Some(0.5));
         });
     }
 

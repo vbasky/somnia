@@ -91,12 +91,12 @@ frequent drop to `Raw` into a typed node.
   / `RELATE`. **(unreleased)** `PARALLEL` is intentionally omitted — SurrealDB 3.1
   rejects it as a `SELECT` clause (parse error).
 
-- [ ] **More schema DDL.** `DEFINE EVENT` (table-level `WHEN … THEN …` triggers
-  that fire on `CREATE`/`UPDATE`/`DELETE`), `DEFINE FUNCTION` (user-defined
-  SurrealQL functions with typed argument lists), `DEFINE ANALYZER` (custom
-  tokenizer + filter pipelines for full-text search), `DEFINE PARAM` (schema-
-  scoped default parameters). On fields: `ASSERT` (validation expressions),
-  `READONLY`, and fine-grained `PERMISSIONS FOR select|create|update|delete`.
+- [x] **More schema DDL.** Standalone builders `DefineEvent`, `DefineFunction`,
+  `DefineAnalyzer`, `DefineParam` (each with a matching `::remove`), and new
+  field attributes `#[field(assert = "…")]`, `#[field(readonly)]`,
+  `#[field(permissions = "…")]` that render into the derived `DEFINE FIELD`.
+  Validated against the live engine (ASSERT rejects invalid writes, the function
+  is callable, the param resolves). **(unreleased)**
 
 - [ ] **Control flow.** Typed `IF … THEN … ELSE IF … ELSE … END` and
   `FOR $item IN <array>` builders that compose as `DynExpr` nodes. SurrealDB

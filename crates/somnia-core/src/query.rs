@@ -1453,3 +1453,272 @@ impl std::fmt::Display for DefineIndex {
         write!(f, "{}", self.to_surrealql())
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DEFINE EVENT / FUNCTION / ANALYZER / PARAM
+// ═══════════════════════════════════════════════════════════════════════════════
+
+fn guard(if_not_exists: bool) -> &'static str {
+    if if_not_exists {
+        "IF NOT EXISTS "
+    } else {
+        ""
+    }
+}
+
+/// `DEFINE EVENT <name> ON TABLE <table> WHEN <cond> THEN <block>` — a trigger
+/// that fires on `CREATE`/`UPDATE`/`DELETE`. `$event`, `$before`, `$after`,
+/// `$value` are available inside `when`/`then`.
+///
+/// ```ignore
+/// DefineEvent::new("on_publish", "post")
+///     .when("$event = 'UPDATE' AND $after.published = true")
+///     .then("{ CREATE notification SET post = $after.id }")
+///     .to_surrealql();
+/// ```
+pub struct DefineEvent {
+    name: String,
+    table: String,
+    when: String,
+    then: String,
+    if_not_exists: bool,
+}
+
+impl DefineEvent {
+    pub fn new(name: impl Into<String>, table: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            table: table.into(),
+            when: String::new(),
+            then: String::new(),
+            if_not_exists: true,
+        }
+    }
+    /// The `WHEN <condition>` guard (raw SurrealQL).
+    pub fn when(mut self, cond: impl Into<String>) -> Self {
+        self.when = cond.into();
+        self
+    }
+    /// The `THEN <block>` body (raw SurrealQL, typically a `{ … }` block).
+    pub fn then(mut self, block: impl Into<String>) -> Self {
+        self.then = block.into();
+        self
+    }
+    /// Drop the `IF NOT EXISTS` guard.
+    pub fn overwrite(mut self) -> Self {
+        self.if_not_exists = false;
+        self
+    }
+    pub fn to_surrealql(&self) -> String {
+        format!(
+            "DEFINE EVENT {}{} ON TABLE {} WHEN {} THEN {}",
+            guard(self.if_not_exists),
+            self.name,
+            self.table,
+            self.when,
+            self.then
+        )
+    }
+    /// `REMOVE EVENT IF EXISTS <name> ON TABLE <table>`.
+    pub fn remove(name: &str, table: &str) -> String {
+        format!("REMOVE EVENT IF EXISTS {name} ON TABLE {table}")
+    }
+}
+
+impl std::fmt::Display for DefineEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_surrealql())
+    }
+}
+
+/// `DEFINE FUNCTION fn::<name>(<args>) -> <ret> { <body> }` — a user-defined
+/// SurrealQL function. The `fn::` prefix is added automatically.
+///
+/// ```ignore
+/// DefineFunction::new("greet")
+///     .arg("name", "string")
+///     .returns("string")
+///     .body("RETURN 'hi ' + $name;")
+///     .to_surrealql();
+/// ```
+pub struct DefineFunction {
+    name: String,
+    args: Vec<(String, String)>,
+    returns: Option<String>,
+    body: String,
+    if_not_exists: bool,
+}
+
+impl DefineFunction {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            args: Vec::new(),
+            returns: None,
+            body: String::new(),
+            if_not_exists: true,
+        }
+    }
+    /// Add a typed argument — `$name: type`.
+    pub fn arg(mut self, name: impl Into<String>, ty: impl Into<String>) -> Self {
+        self.args.push((name.into(), ty.into()));
+        self
+    }
+    /// Declared return type (`-> <ty>`).
+    pub fn returns(mut self, ty: impl Into<String>) -> Self {
+        self.returns = Some(ty.into());
+        self
+    }
+    /// The function body (raw SurrealQL statements, e.g. `RETURN …;`).
+    pub fn body(mut self, body: impl Into<String>) -> Self {
+        self.body = body.into();
+        self
+    }
+    pub fn overwrite(mut self) -> Self {
+        self.if_not_exists = false;
+        self
+    }
+    pub fn to_surrealql(&self) -> String {
+        let args = self
+            .args
+            .iter()
+            .map(|(n, t)| format!("${n}: {t}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let ret = self
+            .returns
+            .as_ref()
+            .map(|r| format!(" -> {r}"))
+            .unwrap_or_default();
+        format!(
+            "DEFINE FUNCTION {}fn::{}({}){} {{ {} }}",
+            guard(self.if_not_exists),
+            self.name,
+            args,
+            ret,
+            self.body
+        )
+    }
+    /// `REMOVE FUNCTION IF EXISTS fn::<name>`.
+    pub fn remove(name: &str) -> String {
+        format!("REMOVE FUNCTION IF EXISTS fn::{name}")
+    }
+}
+
+impl std::fmt::Display for DefineFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_surrealql())
+    }
+}
+
+/// `DEFINE ANALYZER <name> TOKENIZERS <toks> FILTERS <filters>` — a full-text
+/// tokenizer + filter pipeline (referenced by a `SEARCH` index).
+pub struct DefineAnalyzer {
+    name: String,
+    tokenizers: Vec<String>,
+    filters: Vec<String>,
+    if_not_exists: bool,
+}
+
+impl DefineAnalyzer {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            tokenizers: Vec::new(),
+            filters: Vec::new(),
+            if_not_exists: true,
+        }
+    }
+    /// Set the tokenizers (e.g. `["class"]`, `["blank", "punct"]`).
+    pub fn tokenizers<I, S>(mut self, toks: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.tokenizers = toks.into_iter().map(Into::into).collect();
+        self
+    }
+    /// Set the filters (e.g. `["lowercase", "ascii", "snowball(english)"]`).
+    pub fn filters<I, S>(mut self, filters: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.filters = filters.into_iter().map(Into::into).collect();
+        self
+    }
+    pub fn overwrite(mut self) -> Self {
+        self.if_not_exists = false;
+        self
+    }
+    pub fn to_surrealql(&self) -> String {
+        let mut q = format!("DEFINE ANALYZER {}{}", guard(self.if_not_exists), self.name);
+        if !self.tokenizers.is_empty() {
+            q.push_str(" TOKENIZERS ");
+            q.push_str(&self.tokenizers.join(", "));
+        }
+        if !self.filters.is_empty() {
+            q.push_str(" FILTERS ");
+            q.push_str(&self.filters.join(", "));
+        }
+        q
+    }
+    /// `REMOVE ANALYZER IF EXISTS <name>`.
+    pub fn remove(name: &str) -> String {
+        format!("REMOVE ANALYZER IF EXISTS {name}")
+    }
+}
+
+impl std::fmt::Display for DefineAnalyzer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_surrealql())
+    }
+}
+
+/// `DEFINE PARAM $<name> VALUE <value>` — a database-scoped parameter. The `$`
+/// prefix is added automatically.
+pub struct DefineParam {
+    name: String,
+    value: String,
+    if_not_exists: bool,
+}
+
+impl DefineParam {
+    /// Begin a `DEFINE PARAM` with a raw SurrealQL value expression.
+    pub fn new(name: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            value: value.into(),
+            if_not_exists: true,
+        }
+    }
+    /// Set the value from a typed literal instead of a raw string.
+    pub fn value_lit<V: SurrealQL>(mut self, value: V) -> Self {
+        let mut buf = String::new();
+        V::render_literal(&value, &mut buf);
+        self.value = buf;
+        self
+    }
+    pub fn overwrite(mut self) -> Self {
+        self.if_not_exists = false;
+        self
+    }
+    pub fn to_surrealql(&self) -> String {
+        format!(
+            "DEFINE PARAM {}${} VALUE {}",
+            guard(self.if_not_exists),
+            self.name,
+            self.value
+        )
+    }
+    /// `REMOVE PARAM IF EXISTS $<name>`.
+    pub fn remove(name: &str) -> String {
+        format!("REMOVE PARAM IF EXISTS ${name}")
+    }
+}
+
+impl std::fmt::Display for DefineParam {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_surrealql())
+    }
+}

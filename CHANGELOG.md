@@ -12,6 +12,12 @@ notes, so keep this format intact.
 
 ### Added
 
+- **More schema DDL (P2)** — standalone builders `DefineEvent`, `DefineFunction`
+  (`fn::`-prefixed, typed args, return type, body), `DefineAnalyzer` (tokenizers +
+  filters), and `DefineParam` (`$`-prefixed, raw or typed value), each with a
+  `::remove(...)` inverse. New derived field attributes `#[field(assert = "…")]`,
+  `#[field(readonly)]`, and `#[field(permissions = "…")]` render into the
+  generated `DEFINE FIELD`. Validated against the live engine.
 - **`SELECT` extras (P2)** — `VALUE` mode, `OMIT`, `SPLIT`, `WITH INDEX`/`WITH
   NOINDEX` hints, `TIMEOUT`, and `EXPLAIN`[` FULL`] modifiers on `Select`;
   subqueries (`Select<T>` now implements `DynExpr`, rendering parenthesized — use
