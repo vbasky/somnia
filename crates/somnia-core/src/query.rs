@@ -106,8 +106,8 @@ impl<T: SurrealRecord> Table<T> {
         s
     }
 
-    /// `SELECT count() FROM table GROUP ALL` (the argument is currently ignored).
-    pub fn count(self, _field: &str) -> Select<T> {
+    /// `SELECT count() FROM table GROUP ALL`.
+    pub fn count(self) -> Select<T> {
         let mut s = Select::bare();
         s.count = true;
         s.group_all = true;
@@ -224,8 +224,8 @@ impl<T: SurrealRecord> Select<T> {
         self.start = n;
         self
     }
-    pub fn fetch(mut self, field: &str) -> Self {
-        self.fetch.push(field.to_string());
+    pub fn fetch(mut self, field: impl Into<String>) -> Self {
+        self.fetch.push(field.into());
         self
     }
     pub fn group_by<C: DynExpr>(mut self, col: C) -> Self {
@@ -253,13 +253,13 @@ impl<T: SurrealRecord> Select<T> {
         self
     }
     /// `OMIT <field>` — exclude a field from a `SELECT *`.
-    pub fn omit(mut self, field: &str) -> Self {
-        self.omit.push(field.to_string());
+    pub fn omit(mut self, field: impl Into<String>) -> Self {
+        self.omit.push(field.into());
         self
     }
     /// `SPLIT <field>` — fan one row out into multiple rows by an array field.
-    pub fn split(mut self, field: &str) -> Self {
-        self.split.push(field.to_string());
+    pub fn split(mut self, field: impl Into<String>) -> Self {
+        self.split.push(field.into());
         self
     }
     /// `WITH INDEX <a, b>` — force the planner to use the named index(es).
@@ -668,23 +668,22 @@ impl<T: SurrealRecord> Update<T> {
         self
     }
     /// `SET col = <literal>` by raw column name.
-    pub fn set_lit<C: SurrealQL>(mut self, col: &str, value: C) -> Self {
+    pub fn set_lit<C: SurrealQL>(mut self, col: impl Into<String>, value: C) -> Self {
         self.sets.push(SetVal::Assign(
-            col.to_string(),
+            col.into(),
             Box::new(crate::expr::Literal(value)),
         ));
         self
     }
     /// `SET col = <expr>` — e.g. a record link, `time::now()`, NONE, `use_count + 1`.
-    pub fn set_expr(mut self, col: &str, expr: impl DynExpr + 'static) -> Self {
-        self.sets
-            .push(SetVal::Assign(col.to_string(), Box::new(expr)));
+    pub fn set_expr(mut self, col: impl Into<String>, expr: impl DynExpr + 'static) -> Self {
+        self.sets.push(SetVal::Assign(col.into(), Box::new(expr)));
         self
     }
     /// `SET col = <raw SurrealQL>`.
-    pub fn set_raw(mut self, col: &str, raw: impl Into<String>) -> Self {
+    pub fn set_raw(mut self, col: impl Into<String>, raw: impl Into<String>) -> Self {
         self.sets.push(SetVal::Assign(
-            col.to_string(),
+            col.into(),
             Box::new(crate::expr::Raw(raw.into())),
         ));
         self
@@ -819,26 +818,26 @@ impl<T: SurrealRecord> Create<T> {
     }
 
     /// `SET col = <literal>`.
-    pub fn set_lit<C: SurrealQL>(mut self, col: &str, value: C) -> Self {
-        self.push_set(col, Box::new(crate::expr::Literal(value)));
+    pub fn set_lit<C: SurrealQL>(mut self, col: impl Into<String>, value: C) -> Self {
+        self.push_set(col.into(), Box::new(crate::expr::Literal(value)));
         self
     }
     /// `SET col = <expr>`.
-    pub fn set_expr(mut self, col: &str, expr: impl DynExpr + 'static) -> Self {
-        self.push_set(col, Box::new(expr));
+    pub fn set_expr(mut self, col: impl Into<String>, expr: impl DynExpr + 'static) -> Self {
+        self.push_set(col.into(), Box::new(expr));
         self
     }
     /// `SET col = <raw SurrealQL>`.
-    pub fn set_raw(mut self, col: &str, raw: impl Into<String>) -> Self {
-        self.push_set(col, Box::new(crate::expr::Raw(raw.into())));
+    pub fn set_raw(mut self, col: impl Into<String>, raw: impl Into<String>) -> Self {
+        self.push_set(col.into(), Box::new(crate::expr::Raw(raw.into())));
         self
     }
 
-    fn push_set(&mut self, col: &str, expr: Box<dyn DynExpr>) {
+    fn push_set(&mut self, col: String, expr: Box<dyn DynExpr>) {
         match &mut self.body {
-            CreateBody::Set(v) => v.push((col.to_string(), expr)),
+            CreateBody::Set(v) => v.push((col, expr)),
             CreateBody::Content(_) => {
-                self.body = CreateBody::Set(vec![(col.to_string(), expr)]);
+                self.body = CreateBody::Set(vec![(col, expr)]);
             }
         }
     }
@@ -1430,19 +1429,19 @@ impl DefineIndex {
     }
     /// A full-text `SEARCH ANALYZER <analyzer>` index. Append further options
     /// (`BM25`, `HIGHLIGHTS`, …) with [`raw`](Self::raw) if your engine needs them.
-    pub fn search(mut self, analyzer: &str) -> Self {
-        self.kind = IndexKind::Raw(format!("SEARCH ANALYZER {analyzer}"));
+    pub fn search(mut self, analyzer: impl Into<String>) -> Self {
+        self.kind = IndexKind::Raw(format!("SEARCH ANALYZER {}", analyzer.into()));
         self
     }
     /// An `HNSW` vector index of the given dimension and distance function
     /// (e.g. `"COSINE"`, `"EUCLIDEAN"`).
-    pub fn hnsw(mut self, dimension: u32, dist: &str) -> Self {
-        self.kind = IndexKind::Raw(format!("HNSW DIMENSION {dimension} DIST {dist}"));
+    pub fn hnsw(mut self, dimension: u32, dist: impl Into<String>) -> Self {
+        self.kind = IndexKind::Raw(format!("HNSW DIMENSION {dimension} DIST {}", dist.into()));
         self
     }
     /// An `MTREE` vector index of the given dimension and distance function.
-    pub fn mtree(mut self, dimension: u32, dist: &str) -> Self {
-        self.kind = IndexKind::Raw(format!("MTREE DIMENSION {dimension} DIST {dist}"));
+    pub fn mtree(mut self, dimension: u32, dist: impl Into<String>) -> Self {
+        self.kind = IndexKind::Raw(format!("MTREE DIMENSION {dimension} DIST {}", dist.into()));
         self
     }
     /// Set a verbatim trailing clause (the escape hatch for index options somnia

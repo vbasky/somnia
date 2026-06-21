@@ -68,7 +68,7 @@ mod tests {
     fn select_count_group_all() {
         // SurrealCommentStore::reply_count
         let sql = AssetComment::table()
-            .count("")
+            .count()
             .count_as("c")
             .filter(Raw("parent".into()).and(Raw("1=1".into())))
             .to_surrealql();

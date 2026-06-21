@@ -240,8 +240,8 @@ mod tests {
         .await
         .unwrap();
 
-        // Count all (no GROUP BY)
-        let sel = Asset::table().count("").to_surrealql();
+        // Count all
+        let sel = Asset::table().count().to_surrealql();
 
         assert!(sel.contains("SELECT count()"));
 

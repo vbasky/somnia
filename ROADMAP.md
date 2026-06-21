@@ -109,11 +109,11 @@ frequent drop to `Raw` into a typed node.
   covered: the derive renders `DEFINE FIELD … FLEXIBLE TYPE …` (regression test
   added). **(0.6.0)**
 
-- [ ] **1.0 cleanup.** Before 1.0: remove the unused `_field: &str` parameter
-  from `Table::count()` (vestigial API, always ignored), audit the builder
-  surfaces for consistency (some methods take `&str`, others `impl Into<String>`;
-  some accept `Thing<T>`, others a string key), and stabilize the public trait
-  surface after the P2 feature set settles.
+- [x] **1.0 cleanup.** Removed the unused `_field` parameter from `Table::count()`
+  (now `count()`), and widened the builder string args to `impl Into<String>` so
+  the older `Select`/`Create`/`Update` methods match the newer builders (record
+  targets already accept any `SurrealQL` key incl. `Thing<T>`). **(0.7.0,
+  breaking)** Deeper public-trait-surface stabilization continues toward 1.0.
 
 ## P3 — advanced / specialized
 

@@ -10,6 +10,18 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- **(Breaking) `Table::count()` drops its ignored argument** — was
+  `count(field: &str)` (the field was never used); now `count()`. Update
+  `table().count("")` → `table().count()`.
+- **(Breaking) builder string args widened to `impl Into<String>`** for
+  consistency with the newer builders: `Select::fetch`/`omit`/`split`,
+  `Create`/`Update::set_lit`/`set_expr`/`set_raw` (the `col` name), and
+  `DefineIndex::search`/`hnsw`/`mtree`. `&str` literals and `String` still work;
+  callers passing `&String` must deref (`&*s` → `s.clone()` or `s.as_str()`).
+  Part of the pre-1.0 API stabilization pass.
+
 ### Fixed
 
 - **Docs** — removed a broken intra-doc link in the `SurrealEdge` derive doc
