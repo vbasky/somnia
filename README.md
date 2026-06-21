@@ -221,47 +221,205 @@ for m in migrator.status().await? {
 Applied migrations are tracked in a `_somnia_migrations` table, so re-running only
 applies what's pending.
 
-### More query power
+## More query power
 
-Beyond CRUD, somnia models much of SurrealDB's surface as typed builders:
+somnia models much of SurrealDB's surface as typed builders, so you rarely fall
+back to raw strings. Every builder renders to a plain SurrealQL string via
+`to_surrealql()` — shown in the `//` comments below — so nothing is hidden. The
+examples build on the `Post` and `Comment` structs from [Quick start](#quick-start).
+
+### Parameters and `LET`
+
+By default somnia inlines values as escaped literals. For statement reuse or
+binary-safe values, switch to `$param` binding with `to_surrealql_with_params()`,
+which returns the SQL plus a map of bound values; execute it with
+`client.query_with_params(...)`:
 
 ```rust
-use somnia::{col, ident, Transaction, IfExpr, For, DefineEvent, DefineFunction, Raw};
-
-// Atomic transaction — all statements commit, or none do
-let tx = Transaction::new()
-    .push(Post::table().create().record("p1".to_string()).set_lit("title", "Hi".to_string()))
-    .push("UPDATE counter SET posts += 1")
-    .to_surrealql(); // BEGIN TRANSACTION; … ; COMMIT TRANSACTION;
-
-// $param binding instead of inlined literals
 let (sql, params) = Post::table()
     .select(Post::all())
     .filter(Post::title().eq("hello".to_string()))
-    .to_surrealql_with_params(); // ("… WHERE title = $p0", { p0: "hello" })
+    .limit(10)
+    .to_surrealql_with_params();
+// sql    == "SELECT * FROM post WHERE title = $p0 LIMIT 10"
+// params == { "p0": "hello" }
 
-// Subqueries + IN — a Select is usable as an expression
-let recent = Post::table().project(vec![col("id")]).value().filter(Raw("published".into()));
-let sql = Comment::table()
-    .select(Comment::all())
-    .filter(ident("post").in_expr(recent))
-    .to_surrealql();
-
-// SELECT modifiers: VALUE / OMIT / SPLIT / WITH INDEX / TIMEOUT / EXPLAIN
-let sql = Post::table().select(Post::all()).omit("body").timeout("5s").to_surrealql();
-
-// Control flow as expressions
-let label = IfExpr::new(Raw("votes > 100".into()), Raw("'hot'".into())).else_(Raw("'normal'".into()));
-let seed = For::new("n", Raw("[1, 2, 3]".into())).push("CREATE counter SET v = $n");
-
-// Schema DDL beyond tables/fields/indexes
-let ev = DefineEvent::new("on_publish", "post")
-    .when("$event = 'UPDATE'").then("{ CREATE log SET at = time::now() }").to_surrealql();
-let f = DefineFunction::new("greet").arg("name", "string").returns("string")
-    .body("RETURN 'hi ' + $name;").to_surrealql();
+let rows: Vec<Post> = client.query_with_params(&sql, &params).await?;
 ```
 
-Edge records can derive their `SurrealEdge` impl: `#[derive(SurrealRecord, SurrealEdge)]`.
+Bind one value to a name and reuse it across a query with `Param`, and declare a
+session variable with `LetVar`:
+
+```rust
+use somnia::{Param, LetVar, Raw};
+
+// `$q` appears twice in the SQL but is bound once
+let q = Param::new("q", "rust".to_string());
+let (sql, params) = Post::table()
+    .select(Post::all())
+    .filter(Post::title().eq_expr(q.clone()).or(Post::body().contains_expr(q)))
+    .to_surrealql_with_params();
+// "SELECT * FROM post WHERE title = $q OR body CONTAINS $q"   with  { "q": "rust" }
+
+let now = LetVar::new("now", Raw("time::now()".into())).to_surrealql();
+// "LET $now = time::now()"
+```
+
+### Transactions
+
+`Transaction` wraps statements in `BEGIN … COMMIT` so they apply **atomically** —
+SurrealDB rolls the whole block back if any statement errors. `.cancel()` ends
+with `CANCEL TRANSACTION` to roll back explicitly:
+
+```rust
+use somnia::Transaction;
+
+let tx = Transaction::new()
+    .push(Post::table().create().record("p1".to_string()).set_lit("title", "Hi".to_string()))
+    .push("UPDATE stats SET posts += 1")
+    .to_surrealql();
+// BEGIN TRANSACTION;
+// CREATE type::record('post', 'p1') SET title = 'Hi';
+// UPDATE stats SET posts += 1;
+// COMMIT TRANSACTION;
+
+client.query::<Post>(&tx).await?; // all-or-nothing
+```
+
+### Subqueries and `IN`
+
+A `Select` is itself an expression, so you can nest one inside a `WHERE … IN`,
+use it as a scalar, or read `FROM` it. Columns and idents gain `in_expr` /
+`not_in_expr`:
+
+```rust
+use somnia::{ident, col, Raw};
+
+// posts referenced by recent comments
+let recent = Comment::table()
+    .project(vec![col("post")])
+    .value() // SELECT VALUE post → a bare list of record ids
+    .filter(Raw("created_at > time::now() - 1d".into()));
+
+let sql = Post::table()
+    .select(Post::all())
+    .filter(ident("id").in_expr(recent))
+    .to_surrealql();
+// SELECT * FROM post
+//   WHERE id IN (SELECT VALUE post FROM comment WHERE created_at > time::now() - 1d)
+
+// …or read FROM a subquery
+let sql = Post::table()
+    .select(Post::all())
+    .from_subquery(Post::table().select(Post::all()).filter(ident("published").eq(true)))
+    .to_surrealql();
+// SELECT * FROM (SELECT * FROM post WHERE published = true)
+```
+
+### `SELECT` modifiers
+
+`VALUE` (bare values), `OMIT` (drop fields from `*`), `SPLIT` (fan a row out by an
+array field), `WITH INDEX` / `WITH NOINDEX` (planner hints), `TIMEOUT`, and
+`EXPLAIN`:
+
+```rust
+let bare = Post::table().project(vec![col("title")]).value().to_surrealql();
+// SELECT VALUE title FROM post
+
+let sql = Post::table()
+    .select(Post::all())
+    .omit("body")
+    .with_index(["idx_published"])
+    .filter(ident("published").eq(true))
+    .timeout("5s")
+    .to_surrealql();
+// SELECT * OMIT body FROM post WITH INDEX idx_published WHERE published = true TIMEOUT 5s
+
+let plan = Post::table().select(Post::all()).explain().to_surrealql();
+// SELECT * FROM post EXPLAIN
+```
+
+> SurrealDB 3.1 doesn't accept `PARALLEL` as a `SELECT` clause, so somnia doesn't emit it.
+
+### Control flow — `IF` and `FOR`
+
+`IfExpr` is an expression you can drop into a projection, a `SET` value, a
+`RETURN`, or a `WHERE`. `For` builds an iterating block:
+
+```rust
+use somnia::{IfExpr, For, Raw};
+
+let tier = IfExpr::new(Raw("votes >= 100".into()), Raw("'hot'".into()))
+    .else_if(Raw("votes >= 10".into()), Raw("'warm'".into()))
+    .else_(Raw("'cold'".into()));
+// IF votes >= 100 THEN 'hot' ELSE IF votes >= 10 THEN 'warm' ELSE 'cold' END
+// e.g. as a projection: Post::table().project(vec![Projection::aliased(tier, "tier")])
+
+let seed = For::new("n", Raw("[1, 2, 3]".into()))
+    .push("CREATE counter SET v = $n")
+    .to_surrealql();
+// FOR $n IN [1, 2, 3] { CREATE counter SET v = $n; }
+```
+
+### Schema DDL beyond tables, fields, and indexes
+
+Builders for the remaining `DEFINE` statements — events, functions, analyzers,
+and params — each with a matching `::remove(...)` inverse:
+
+```rust
+use somnia::{DefineEvent, DefineFunction, DefineAnalyzer, DefineParam};
+
+DefineEvent::new("on_publish", "post")
+    .when("$event = 'UPDATE' AND $after.published = true")
+    .then("{ CREATE log SET post = $after.id, at = time::now() }")
+    .to_surrealql();
+// DEFINE EVENT IF NOT EXISTS on_publish ON TABLE post WHEN … THEN { … }
+
+DefineFunction::new("greet")
+    .arg("name", "string")
+    .returns("string")
+    .body("RETURN 'hi ' + $name;")
+    .to_surrealql();
+// DEFINE FUNCTION IF NOT EXISTS fn::greet($name: string) -> string { RETURN 'hi ' + $name; }
+
+DefineAnalyzer::new("ascii").tokenizers(["class"]).filters(["lowercase", "ascii"]).to_surrealql();
+DefineParam::new("rate", "0.5").to_surrealql();
+// DEFINE PARAM IF NOT EXISTS $rate VALUE 0.5
+```
+
+Fields gain `ASSERT` (validation), `READONLY`, and `PERMISSIONS` attributes,
+which flow into the generated `DEFINE FIELD`:
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealRecord)]
+#[table("account")]
+struct Account {
+    #[field(thing)] id: Thing<Account>,
+    #[field(assert = "$value >= 0")] balance: i64,
+    #[field(readonly)] created_by: String,
+    #[field(permissions = "FOR select WHERE id = $auth.id")] secret: String,
+}
+// DEFINE FIELD … balance … TYPE int ASSERT $value >= 0;
+// DEFINE FIELD … created_by … TYPE string READONLY;
+// DEFINE FIELD … secret … TYPE string PERMISSIONS FOR select WHERE id = $auth.id;
+```
+
+### Graph edges
+
+Define an edge record once and **derive** its `SurrealEdge` impl (the edge name
+comes from `#[table(...)]`) — no hand-written `impl SurrealEdge`:
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealRecord, SurrealEdge)]
+#[table("wrote")]
+struct Wrote {
+    #[field(thing)] id: Thing<Wrote>,
+}
+```
+
+Then create edges with `RELATE` and query across them with typed paths — see the
+`Path::out::<Wrote>()…` examples under [Build queries](#build-queries) above,
+including recursive `@.{..}` traversal.
 
 ## Crates
 

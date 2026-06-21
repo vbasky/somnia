@@ -10,6 +10,13 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+### Changed
+
+- **README** — expanded the terse "More query power" block into descriptive,
+  per-feature sections (Parameters & `LET`, Transactions, Subqueries & `IN`,
+  `SELECT` modifiers, Control flow, advanced schema DDL, graph edges), each with a
+  worked sample and the rendered SurrealQL shown inline.
+
 ## [0.7.0] - 2026-06-22
 
 Pre-1.0 API stabilization plus release-pipeline hardening. **Breaking** in two
