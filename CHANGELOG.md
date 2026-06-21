@@ -10,6 +10,17 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+### Added
+
+- **Parameters / `LET` (P2)** — an opt-in `$param`-binding mode alongside the
+  default inline rendering. `to_surrealql_with_params()` on `Select`/`Create`/
+  `Update`/`Delete` (and `then_select_params()` on the mutations) returns
+  `(String, BTreeMap<String, serde_json::Value>)`, auto-binding each literal as
+  `$p0`, `$p1`, …. `Param::new("name", value)` declares an explicit named
+  placeholder for reuse across a query. A `LetVar` builder emits
+  `LET $var = <expr>`, and `SomniaClient::query_with_params()` binds and runs the
+  pair. The inline `to_surrealql()` path is unchanged.
+
 ### Changed
 
 - **README** — documented the P1 features shipped through 0.5.2: a graph-traversal

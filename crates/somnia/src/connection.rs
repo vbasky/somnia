@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use surrealdb::engine::any::{connect, Any};
 use surrealdb::opt::auth::Root;
 use surrealdb::Surreal;
@@ -49,6 +50,35 @@ impl SomniaClient {
         let mut res = self
             .inner
             .query(&surql)
+            .await
+            .map_err(|e| SomniaError::Connection(e.to_string()))?;
+        let rows: Vec<serde_json::Value> =
+            res.take(0).map_err(|e| SomniaError::Deser(e.to_string()))?;
+        rows.into_iter()
+            .map(|v| {
+                let row: T = serde_json::from_value(v)?;
+                Ok::<T, SomniaError>(row)
+            })
+            .collect::<Result<Vec<T>, SomniaError>>()
+    }
+
+    /// Like [`query`](Self::query) but accepts a `(sql, params)` tuple from
+    /// [`to_surrealql_with_params`](somnia_core::query::Select::to_surrealql_with_params),
+    /// binding each parameter to the SurrealDB query.
+    pub async fn query_with_params<T>(
+        &self,
+        surql: &str,
+        params: &BTreeMap<String, serde_json::Value>,
+    ) -> Result<Vec<T>, SomniaError>
+    where
+        T: SurrealRecord + serde::de::DeserializeOwned,
+    {
+        tracing::debug!(query = %surql, params = ?params.len(), "executing with params");
+        let mut q = self.inner.query(surql);
+        for (name, value) in params {
+            q = q.bind((name.as_str(), value.clone()));
+        }
+        let mut res = q
             .await
             .map_err(|e| SomniaError::Connection(e.to_string()))?;
         let rows: Vec<serde_json::Value> =

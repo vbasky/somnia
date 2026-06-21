@@ -6,6 +6,7 @@
 //! [`RecordLink`] (`type::record(...)`), [`Func`] calls, and comparison/logical
 //! operators that combine with `.and()` / `.or()`.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use crate::types::SurrealRecord;
@@ -17,8 +18,19 @@ use crate::types::SurrealRecord;
 /// A type-erased expression that can render itself into a SurrealQL buffer.
 /// Implemented by every expression node; the common currency of the builder.
 pub trait DynExpr: fmt::Debug + Send + Sync {
-    /// Append this expression's SurrealQL to `buf`.
+    /// Append this expression's SurrealQL to `buf` with all values inlined.
     fn render_dyn(&self, buf: &mut String);
+
+    /// Render with `$param` placeholders, collecting values into `params`.
+    /// Default falls back to inline rendering; [`Literal`] nodes override this
+    /// to emit `$pN` placeholders and collect their value.
+    fn render_dyn_params(
+        &self,
+        buf: &mut String,
+        _params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        self.render_dyn(buf);
+    }
 }
 
 /// A boxed, type-erased expression. Useful for returning a composed filter from
@@ -28,6 +40,13 @@ pub type DynExprBox = Box<dyn DynExpr>;
 impl DynExpr for Box<dyn DynExpr> {
     fn render_dyn(&self, buf: &mut String) {
         (**self).render_dyn(buf);
+    }
+    fn render_dyn_params(
+        &self,
+        buf: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        (**self).render_dyn_params(buf, params);
     }
 }
 
@@ -62,6 +81,9 @@ pub trait SurrealQL: fmt::Debug + Clone + Send + Sync + 'static {
     fn surreal_type() -> &'static str;
     /// Append the literal form of `value` to `buf` (with any needed quoting/escaping).
     fn render_literal(value: &Self, buf: &mut String);
+    /// Convert `value` to a JSON parameter for `$param` binding. Used by
+    /// [`to_surrealql_with_params`](crate::query::Select::to_surrealql_with_params).
+    fn to_param_value(value: &Self) -> serde_json::Value;
 }
 
 impl SurrealQL for String {
@@ -74,6 +96,9 @@ impl SurrealQL for String {
         buf.push_str(&escaped);
         buf.push('\'');
     }
+    fn to_param_value(value: &Self) -> serde_json::Value {
+        serde_json::Value::String(value.clone())
+    }
 }
 
 impl SurrealQL for bool {
@@ -82,6 +107,9 @@ impl SurrealQL for bool {
     }
     fn render_literal(value: &Self, buf: &mut String) {
         buf.push_str(if *value { "true" } else { "false" });
+    }
+    fn to_param_value(value: &Self) -> serde_json::Value {
+        serde_json::Value::Bool(*value)
     }
 }
 
@@ -94,6 +122,9 @@ macro_rules! surreal_display {
             fn render_literal(value: &Self, buf: &mut String) {
                 use std::fmt::Write;
                 let _ = write!(buf, "{value}");
+            }
+            fn to_param_value(value: &Self) -> serde_json::Value {
+                serde_json::to_value(value).unwrap_or(serde_json::Value::Null)
             }
         }
     };
@@ -121,6 +152,9 @@ impl SurrealQL for chrono::DateTime<chrono::Utc> {
         buf.push_str(&value.to_rfc3339());
         buf.push('\'');
     }
+    fn to_param_value(value: &Self) -> serde_json::Value {
+        serde_json::Value::String(value.to_rfc3339())
+    }
 }
 
 impl SurrealQL for uuid::Uuid {
@@ -135,6 +169,9 @@ impl SurrealQL for uuid::Uuid {
         let _ = write!(buf, "{value}");
         buf.push('\'');
     }
+    fn to_param_value(value: &Self) -> serde_json::Value {
+        serde_json::Value::String(value.to_string())
+    }
 }
 
 impl SurrealQL for serde_json::Value {
@@ -147,6 +184,9 @@ impl SurrealQL for serde_json::Value {
         // the serialized form is a valid inline literal.
         use std::fmt::Write;
         let _ = write!(buf, "{value}");
+    }
+    fn to_param_value(value: &Self) -> serde_json::Value {
+        value.clone()
     }
 }
 
@@ -163,6 +203,9 @@ macro_rules! geometry_surrealql {
                     buf.push_str(&s);
                 }
             }
+            fn to_param_value(value: &Self) -> serde_json::Value {
+                serde_json::to_value(value).unwrap_or(serde_json::Value::Null)
+            }
         }
     };
 }
@@ -178,6 +221,12 @@ impl<T: SurrealQL> SurrealQL for Option<T> {
         match value {
             Some(v) => T::render_literal(v, buf),
             None => buf.push_str("NONE"),
+        }
+    }
+    fn to_param_value(value: &Self) -> serde_json::Value {
+        match value {
+            Some(v) => T::to_param_value(v),
+            None => serde_json::Value::Null,
         }
     }
 }
@@ -197,6 +246,9 @@ impl<V: SurrealQL> SurrealQL for Vec<V> {
             V::render_literal(v, buf);
         }
         buf.push(']');
+    }
+    fn to_param_value(value: &Self) -> serde_json::Value {
+        serde_json::Value::Array(value.iter().map(|v| V::to_param_value(v)).collect())
     }
 }
 
@@ -222,6 +274,17 @@ impl SurrealQL for std::time::Duration {
             let _ = write!(buf, "{nanos}ns");
         }
     }
+    fn to_param_value(value: &Self) -> serde_json::Value {
+        let secs = value.as_secs();
+        let nanos = value.subsec_nanos();
+        if secs == 0 && nanos == 0 {
+            serde_json::Value::String("0ns".into())
+        } else if nanos == 0 {
+            serde_json::Value::String(format!("{secs}s"))
+        } else {
+            serde_json::Value::String(format!("{secs}s{nanos}ns"))
+        }
+    }
 }
 
 impl<T: crate::types::SurrealRecord> SurrealQL for crate::types::Thing<T> {
@@ -232,6 +295,11 @@ impl<T: crate::types::SurrealRecord> SurrealQL for crate::types::Thing<T> {
         buf.push_str(T::table_name());
         buf.push(':');
         value.key.render_id(buf);
+    }
+    fn to_param_value(value: &Self) -> serde_json::Value {
+        let mut s = String::new();
+        value.key.render_id(&mut s);
+        serde_json::Value::String(format!("{}:{}", T::table_name(), s))
     }
 }
 
@@ -245,6 +313,68 @@ pub struct Literal<V: SurrealQL>(pub V);
 impl<V: SurrealQL> DynExpr for Literal<V> {
     fn render_dyn(&self, buf: &mut String) {
         V::render_literal(&self.0, buf);
+    }
+    fn render_dyn_params(
+        &self,
+        buf: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        let name = format!("p{}", params.len());
+        buf.push('$');
+        buf.push_str(&name);
+        params.insert(name, V::to_param_value(&self.0));
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Param — explicit named parameter (`$name` placeholder)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// A named SurrealQL parameter `$name`. In inline mode renders as a literal;
+/// in param mode (`to_surrealql_with_params`) renders as `$name` and collects
+/// the value. Use when you want to reference the same value in multiple places
+/// or give params meaningful names.
+///
+/// ```ignore
+/// let title = Param::new("search", "hello");
+/// Post::table()
+///     .project(Post::all())
+///     .filter(Post::title().eq(title.clone()).or(Post::body().contains(title)))
+///     .to_surrealql_with_params();
+/// // → ("SELECT * FROM post WHERE title = $search OR body CONTAINS $search",
+/// //    {"search": "hello"})
+/// ```
+#[derive(Debug, Clone)]
+pub struct Param<V: SurrealQL> {
+    name: String,
+    value: V,
+}
+
+impl<V: SurrealQL> Param<V> {
+    /// Create a named parameter placeholder with the given name and value.
+    pub fn new(name: impl Into<String>, value: V) -> Self {
+        Self {
+            name: name.into(),
+            value,
+        }
+    }
+}
+
+impl<V: SurrealQL> DynExpr for Param<V> {
+    fn render_dyn(&self, buf: &mut String) {
+        // In inline mode, render the literal — the name is irrelevant.
+        V::render_literal(&self.value, buf);
+    }
+    fn render_dyn_params(
+        &self,
+        buf: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        buf.push('$');
+        buf.push_str(&self.name);
+        params
+            .entry(self.name.clone())
+            .or_insert_with(|| V::to_param_value(&self.value));
     }
 }
 
@@ -345,6 +475,14 @@ impl Ident {
             needle: Box::new(Literal(v)),
         }
     }
+    /// `field CONTAINS <expr>` — e.g. array-membership test with a [`Param`] or
+    /// other expression.
+    pub fn contains_expr(&self, expr: impl DynExpr + 'static) -> ContainsExpr {
+        ContainsExpr {
+            haystack: self.dyn_box(),
+            needle: Box::new(expr),
+        }
+    }
     /// Compare to an arbitrary expression — e.g. `asset = type::record('asset', …)`.
     pub fn eq_expr(&self, rhs: impl DynExpr + 'static) -> EqExpr {
         EqExpr {
@@ -437,6 +575,17 @@ impl DynExpr for RecordLink {
         self.key.render_dyn(buf);
         buf.push(')');
     }
+    fn render_dyn_params(
+        &self,
+        buf: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        buf.push_str("type::record('");
+        buf.push_str(self.table);
+        buf.push_str("', ");
+        self.key.render_dyn_params(buf, params);
+        buf.push(')');
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -484,6 +633,23 @@ impl Step {
                 buf.push_str(self.edge);
                 buf.push_str(" WHERE ");
                 f.render_dyn(buf);
+                buf.push(')');
+            }
+            None => buf.push_str(self.edge),
+        }
+        if let Some(dest) = self.dest {
+            buf.push_str(self.dir.arrow());
+            buf.push_str(dest);
+        }
+    }
+    fn render_params(&self, buf: &mut String, params: &mut BTreeMap<String, serde_json::Value>) {
+        buf.push_str(self.dir.arrow());
+        match &self.filter {
+            Some(f) => {
+                buf.push('(');
+                buf.push_str(self.edge);
+                buf.push_str(" WHERE ");
+                f.render_dyn_params(buf, params);
                 buf.push(')');
             }
             None => buf.push_str(self.edge),
@@ -712,6 +878,38 @@ impl DynExpr for Path {
             None => {}
         }
     }
+    fn render_dyn_params(
+        &self,
+        buf: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        match (&self.start, &self.recurse) {
+            (Some(start), Some(range)) => {
+                start.render_dyn_params(buf, params);
+                buf.push_str(".{");
+                buf.push_str(range);
+                buf.push('}');
+            }
+            (None, Some(range)) => {
+                buf.push_str("@.{");
+                buf.push_str(range);
+                buf.push('}');
+            }
+            (Some(start), None) => start.render_dyn_params(buf, params),
+            (None, None) => {}
+        }
+        for step in &self.steps {
+            step.render_params(buf, params);
+        }
+        match &self.tail {
+            Some(Tail::Field(f)) => {
+                buf.push('.');
+                buf.push_str(f);
+            }
+            Some(Tail::All) => buf.push_str(".*"),
+            None => {}
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -751,6 +949,21 @@ impl DynExpr for Func {
         }
         buf.push(')');
     }
+    fn render_dyn_params(
+        &self,
+        buf: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        buf.push_str(self.name);
+        buf.push('(');
+        for (i, a) in self.args.iter().enumerate() {
+            if i > 0 {
+                buf.push_str(", ");
+            }
+            a.render_dyn_params(buf, params);
+        }
+        buf.push(')');
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -771,6 +984,17 @@ macro_rules! binop {
                 buf.push_str($op);
                 buf.push(' ');
                 self.right.render_dyn(buf);
+            }
+            fn render_dyn_params(
+                &self,
+                buf: &mut String,
+                params: &mut BTreeMap<String, serde_json::Value>,
+            ) {
+                self.left.render_dyn_params(buf, params);
+                buf.push(' ');
+                buf.push_str($op);
+                buf.push(' ');
+                self.right.render_dyn_params(buf, params);
             }
         }
     };
@@ -795,6 +1019,14 @@ impl DynExpr for NotExpr {
         buf.push_str("NOT ");
         self.inner.render_dyn(buf);
     }
+    fn render_dyn_params(
+        &self,
+        buf: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        buf.push_str("NOT ");
+        self.inner.render_dyn_params(buf, params);
+    }
 }
 
 #[derive(Debug)]
@@ -808,6 +1040,15 @@ impl DynExpr for ContainsExpr {
         self.haystack.render_dyn(buf);
         buf.push_str(" CONTAINS ");
         self.needle.render_dyn(buf);
+    }
+    fn render_dyn_params(
+        &self,
+        buf: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        self.haystack.render_dyn_params(buf, params);
+        buf.push_str(" CONTAINS ");
+        self.needle.render_dyn_params(buf, params);
     }
 }
 
@@ -856,6 +1097,13 @@ impl<T: SurrealRecord, V: SurrealQL> Column<T, V> {
         ContainsExpr {
             haystack: self.dyn_box(),
             needle: Box::new(Literal(value)),
+        }
+    }
+    /// `column CONTAINS <expr>` — e.g. array-membership test with an expression.
+    pub fn contains_expr(&self, expr: impl DynExpr + 'static) -> ContainsExpr {
+        ContainsExpr {
+            haystack: self.dyn_box(),
+            needle: Box::new(expr),
         }
     }
 
@@ -930,6 +1178,15 @@ impl DynExpr for Grouped {
         self.0.render_dyn(buf);
         buf.push(')');
     }
+    fn render_dyn_params(
+        &self,
+        buf: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        buf.push('(');
+        self.0.render_dyn_params(buf, params);
+        buf.push(')');
+    }
 }
 
 combinators!(Grouped, Func, Path);
@@ -962,6 +1219,17 @@ impl Projection {
     }
     pub fn render(&self, buf: &mut String) {
         self.expr.render_dyn(buf);
+        if let Some(a) = self.alias {
+            buf.push_str(" AS ");
+            buf.push_str(a);
+        }
+    }
+    pub fn render_params(
+        &self,
+        buf: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        self.expr.render_dyn_params(buf, params);
         if let Some(a) = self.alias {
             buf.push_str(" AS ");
             buf.push_str(a);

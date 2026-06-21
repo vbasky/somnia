@@ -17,6 +17,7 @@ use crate::{
     expr::{Column, DynExpr, Order, Path, Projection, RecordLink, SurrealQL},
     types::{SurrealEdge, SurrealRecord, Thing},
 };
+use std::collections::BTreeMap;
 
 /// How a mutating statement should return its affected rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +58,12 @@ impl Target {
         match self {
             Target::Table(t) => buf.push_str(t),
             Target::Record(r) => r.render_dyn(buf),
+        }
+    }
+    fn render_params(&self, buf: &mut String, params: &mut BTreeMap<String, serde_json::Value>) {
+        match self {
+            Target::Table(t) => buf.push_str(t),
+            Target::Record(r) => r.render_dyn_params(buf, params),
         }
     }
 }
@@ -256,6 +263,29 @@ impl<T: SurrealRecord> Select<T> {
         }
     }
 
+    fn render_select_list_params(
+        &self,
+        q: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        if self.count {
+            q.push_str("count()");
+            if let Some(a) = self.count_alias {
+                q.push_str(" AS ");
+                q.push_str(a);
+            }
+        } else if self.projections.is_empty() {
+            q.push('*');
+        } else {
+            for (i, p) in self.projections.iter().enumerate() {
+                if i > 0 {
+                    q.push_str(", ");
+                }
+                p.render_params(q, params);
+            }
+        }
+    }
+
     pub fn to_surrealql(&self) -> String {
         let mut q = String::from("SELECT ");
         self.render_select_list(&mut q);
@@ -294,6 +324,51 @@ impl<T: SurrealRecord> Select<T> {
             q.push_str(&format!(" FETCH {f}"));
         }
         q
+    }
+
+    /// Render the statement with `$param` placeholders instead of inlined
+    /// literals, returning the SQL string and a map of parameter name to value.
+    /// Literal values become numbered `$p0`, `$p1`, …; explicit [`Param`](crate::expr::Param)
+    /// wrappers use their declared name.
+    pub fn to_surrealql_with_params(&self) -> (String, BTreeMap<String, serde_json::Value>) {
+        let mut params = BTreeMap::new();
+        let mut q = String::from("SELECT ");
+        self.render_select_list_params(&mut q, &mut params);
+        q.push_str(" FROM ");
+        q.push_str(T::table_name());
+        if let Some(ref f) = self.filter {
+            q.push_str(" WHERE ");
+            f.render_dyn_params(&mut q, &mut params);
+        }
+        for (i, (col, dir)) in self.order.iter().enumerate() {
+            if i == 0 {
+                q.push_str(" ORDER BY ");
+            } else {
+                q.push_str(", ");
+            }
+            q.push_str(&format!("{col} {dir}"));
+        }
+        for (i, g) in self.group_by.iter().enumerate() {
+            if i == 0 {
+                q.push_str(" GROUP BY ");
+            } else {
+                q.push_str(", ");
+            }
+            q.push_str(g);
+        }
+        if self.group_all {
+            q.push_str(" GROUP ALL");
+        }
+        if self.start > 0 {
+            q.push_str(&format!(" START {}", self.start));
+        }
+        if let Some(n) = self.limit {
+            q.push_str(&format!(" LIMIT {n}"));
+        }
+        for f in &self.fetch {
+            q.push_str(&format!(" FETCH {f}"));
+        }
+        (q, params)
     }
 }
 
@@ -353,12 +428,62 @@ impl<T: SurrealRecord> Insert<T> {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 enum SetVal {
-    /// `SET k = v` where v is a rendered expression
-    Assign(String, String),
+    /// `SET k = <expr>`
+    Assign(String, Box<dyn DynExpr>),
     /// `MERGE <expr>`
-    Merge(String),
+    Merge(Box<dyn DynExpr>),
     /// `CONTENT <expr>` (full replace)
-    Content(String),
+    Content(Box<dyn DynExpr>),
+}
+
+impl SetVal {
+    fn render(&self, buf: &mut String, set_pairs: &mut Vec<String>) {
+        match self {
+            SetVal::Assign(k, v) => {
+                let mut val_buf = String::new();
+                v.render_dyn(&mut val_buf);
+                set_pairs.push(format!("{k} = {val_buf}"));
+            }
+            SetVal::Merge(v) => {
+                let mut val_buf = String::new();
+                v.render_dyn(&mut val_buf);
+                buf.push_str(" MERGE ");
+                buf.push_str(&val_buf);
+            }
+            SetVal::Content(v) => {
+                let mut val_buf = String::new();
+                v.render_dyn(&mut val_buf);
+                buf.push_str(" CONTENT ");
+                buf.push_str(&val_buf);
+            }
+        }
+    }
+    fn render_params(
+        &self,
+        buf: &mut String,
+        set_pairs: &mut Vec<String>,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        match self {
+            SetVal::Assign(k, v) => {
+                let mut val_buf = String::new();
+                v.render_dyn_params(&mut val_buf, params);
+                set_pairs.push(format!("{k} = {val_buf}"));
+            }
+            SetVal::Merge(v) => {
+                let mut val_buf = String::new();
+                v.render_dyn_params(&mut val_buf, params);
+                buf.push_str(" MERGE ");
+                buf.push_str(&val_buf);
+            }
+            SetVal::Content(v) => {
+                let mut val_buf = String::new();
+                v.render_dyn_params(&mut val_buf, params);
+                buf.push_str(" CONTENT ");
+                buf.push_str(&val_buf);
+            }
+        }
+    }
 }
 
 /// An `UPDATE`/`UPSERT` builder: `SET` / `MERGE` / `CONTENT`, an optional `WHERE`,
@@ -407,42 +532,42 @@ impl<T: SurrealRecord> Update<T> {
 
     /// `SET col = <literal>`.
     pub fn set<C: SurrealQL>(mut self, col: Column<T, C>, value: C) -> Self {
-        let mut buf = String::new();
-        C::render_literal(&value, &mut buf);
-        self.sets.push(SetVal::Assign(col.name.to_string(), buf));
+        self.sets.push(SetVal::Assign(
+            col.name.to_string(),
+            Box::new(crate::expr::Literal(value)),
+        ));
         self
     }
     /// `SET col = <literal>` by raw column name.
     pub fn set_lit<C: SurrealQL>(mut self, col: &str, value: C) -> Self {
-        let mut buf = String::new();
-        C::render_literal(&value, &mut buf);
-        self.sets.push(SetVal::Assign(col.to_string(), buf));
+        self.sets.push(SetVal::Assign(
+            col.to_string(),
+            Box::new(crate::expr::Literal(value)),
+        ));
         self
     }
     /// `SET col = <expr>` — e.g. a record link, `time::now()`, NONE, `use_count + 1`.
-    pub fn set_expr(mut self, col: &str, expr: impl DynExpr) -> Self {
-        let mut buf = String::new();
-        expr.render_dyn(&mut buf);
-        self.sets.push(SetVal::Assign(col.to_string(), buf));
+    pub fn set_expr(mut self, col: &str, expr: impl DynExpr + 'static) -> Self {
+        self.sets
+            .push(SetVal::Assign(col.to_string(), Box::new(expr)));
         self
     }
     /// `SET col = <raw SurrealQL>`.
     pub fn set_raw(mut self, col: &str, raw: impl Into<String>) -> Self {
-        self.sets.push(SetVal::Assign(col.to_string(), raw.into()));
+        self.sets.push(SetVal::Assign(
+            col.to_string(),
+            Box::new(crate::expr::Raw(raw.into())),
+        ));
         self
     }
     /// `MERGE <expr>` — deep-merge the given object into the record.
-    pub fn merge(mut self, expr: impl DynExpr) -> Self {
-        let mut buf = String::new();
-        expr.render_dyn(&mut buf);
-        self.sets.push(SetVal::Merge(buf));
+    pub fn merge(mut self, expr: impl DynExpr + 'static) -> Self {
+        self.sets.push(SetVal::Merge(Box::new(expr)));
         self
     }
     /// `CONTENT <expr>` — full-replace the record's content (upsert by record id).
-    pub fn content(mut self, expr: impl DynExpr) -> Self {
-        let mut buf = String::new();
-        expr.render_dyn(&mut buf);
-        self.sets.push(SetVal::Content(buf));
+    pub fn content(mut self, expr: impl DynExpr + 'static) -> Self {
+        self.sets.push(SetVal::Content(Box::new(expr)));
         self
     }
     pub fn returning(mut self, r: Returning) -> Self {
@@ -456,27 +581,29 @@ impl<T: SurrealRecord> Update<T> {
         format!("{};\n{}", self.to_surrealql(), select.to_surrealql())
     }
 
+    /// Like [`then_select`](Self::then_select) but renders with `$param` placeholders.
+    pub fn then_select_params(
+        self,
+        select: Select<T>,
+    ) -> (String, BTreeMap<String, serde_json::Value>) {
+        let (mut_q, mut params) = self.to_surrealql_with_params();
+        let (sel_q, sel_params) = select.to_surrealql_with_params();
+        params.extend(sel_params);
+        (format!("{mut_q};\n{sel_q}"), params)
+    }
+
     pub fn to_surrealql(&self) -> String {
         let mut q = String::from(self.verb);
         q.push(' ');
         self.target.render(&mut q);
         // SurrealQL order: SET/MERGE/CONTENT first, then WHERE, then RETURN.
         let mut set_pairs = Vec::new();
-        let mut merge_clause = None;
-        let mut content_clause = None;
+        let mut trait_buf = String::new();
         for s in &self.sets {
-            match s {
-                SetVal::Assign(k, v) => set_pairs.push(format!("{k} = {v}")),
-                SetVal::Merge(v) => merge_clause = Some(v.clone()),
-                SetVal::Content(v) => content_clause = Some(v.clone()),
-            }
+            s.render(&mut trait_buf, &mut set_pairs);
         }
-        if let Some(c) = content_clause {
-            q.push_str(" CONTENT ");
-            q.push_str(&c);
-        } else if let Some(m) = merge_clause {
-            q.push_str(" MERGE ");
-            q.push_str(&m);
+        if !trait_buf.is_empty() {
+            q.push_str(&trait_buf);
         } else if !set_pairs.is_empty() {
             q.push_str(" SET ");
             q.push_str(&set_pairs.join(", "));
@@ -487,6 +614,31 @@ impl<T: SurrealRecord> Update<T> {
         }
         self.returning.render(&mut q);
         q
+    }
+
+    /// Render with `$param` placeholders instead of inlined literals.
+    pub fn to_surrealql_with_params(&self) -> (String, BTreeMap<String, serde_json::Value>) {
+        let mut params = BTreeMap::new();
+        let mut q = String::from(self.verb);
+        q.push(' ');
+        self.target.render_params(&mut q, &mut params);
+        let mut set_pairs = Vec::new();
+        let mut trait_buf = String::new();
+        for s in &self.sets {
+            s.render_params(&mut trait_buf, &mut set_pairs, &mut params);
+        }
+        if !trait_buf.is_empty() {
+            q.push_str(&trait_buf);
+        } else if !set_pairs.is_empty() {
+            q.push_str(" SET ");
+            q.push_str(&set_pairs.join(", "));
+        }
+        if let Some(ref f) = self.filter {
+            q.push_str(" WHERE ");
+            f.render_dyn_params(&mut q, &mut params);
+        }
+        self.returning.render(&mut q);
+        (q, params)
     }
 }
 
@@ -502,9 +654,9 @@ impl<T: SurrealRecord> std::fmt::Display for Update<T> {
 
 enum CreateBody {
     /// `CONTENT <expr>`
-    Content(String),
+    Content(Box<dyn DynExpr>),
     /// `SET a = x, b = y`
-    Set(Vec<(String, String)>),
+    Set(Vec<(String, Box<dyn DynExpr>)>),
 }
 
 /// `CREATE <target> [CONTENT … | SET …] [RETURN …]`.
@@ -532,38 +684,32 @@ impl<T: SurrealRecord> Create<T> {
     }
 
     /// `CONTENT <expr>` — replaces any accumulated SET pairs.
-    pub fn content(mut self, expr: impl DynExpr) -> Self {
-        let mut buf = String::new();
-        expr.render_dyn(&mut buf);
-        self.body = CreateBody::Content(buf);
+    pub fn content(mut self, expr: impl DynExpr + 'static) -> Self {
+        self.body = CreateBody::Content(Box::new(expr));
         self
     }
 
     /// `SET col = <literal>`.
     pub fn set_lit<C: SurrealQL>(mut self, col: &str, value: C) -> Self {
-        let mut buf = String::new();
-        C::render_literal(&value, &mut buf);
-        self.push_set(col, buf);
+        self.push_set(col, Box::new(crate::expr::Literal(value)));
         self
     }
     /// `SET col = <expr>`.
-    pub fn set_expr(mut self, col: &str, expr: impl DynExpr) -> Self {
-        let mut buf = String::new();
-        expr.render_dyn(&mut buf);
-        self.push_set(col, buf);
+    pub fn set_expr(mut self, col: &str, expr: impl DynExpr + 'static) -> Self {
+        self.push_set(col, Box::new(expr));
         self
     }
     /// `SET col = <raw SurrealQL>`.
     pub fn set_raw(mut self, col: &str, raw: impl Into<String>) -> Self {
-        self.push_set(col, raw.into());
+        self.push_set(col, Box::new(crate::expr::Raw(raw.into())));
         self
     }
 
-    fn push_set(&mut self, col: &str, rendered: String) {
+    fn push_set(&mut self, col: &str, expr: Box<dyn DynExpr>) {
         match &mut self.body {
-            CreateBody::Set(v) => v.push((col.to_string(), rendered)),
+            CreateBody::Set(v) => v.push((col.to_string(), expr)),
             CreateBody::Content(_) => {
-                self.body = CreateBody::Set(vec![(col.to_string(), rendered)]);
+                self.body = CreateBody::Set(vec![(col.to_string(), expr)]);
             }
         }
     }
@@ -583,20 +729,35 @@ impl<T: SurrealRecord> Create<T> {
         format!("{};\n{}", self.to_surrealql(), select.to_surrealql())
     }
 
+    /// Like [`then_select`](Self::then_select) but renders with `$param` placeholders.
+    pub fn then_select_params(
+        self,
+        select: Select<T>,
+    ) -> (String, BTreeMap<String, serde_json::Value>) {
+        let (mut_q, mut params) = self.to_surrealql_with_params();
+        let (sel_q, sel_params) = select.to_surrealql_with_params();
+        params.extend(sel_params);
+        (format!("{mut_q};\n{sel_q}"), params)
+    }
+
     pub fn to_surrealql(&self) -> String {
         let mut q = String::from("CREATE ");
         self.target.render(&mut q);
         match &self.body {
             CreateBody::Content(c) => {
                 q.push_str(" CONTENT ");
-                q.push_str(c);
+                c.render_dyn(&mut q);
             }
             CreateBody::Set(pairs) if !pairs.is_empty() => {
                 q.push_str(" SET ");
                 q.push_str(
                     &pairs
                         .iter()
-                        .map(|(k, v)| format!("{k} = {v}"))
+                        .map(|(k, v)| {
+                            let mut val = String::new();
+                            v.render_dyn(&mut val);
+                            format!("{k} = {val}")
+                        })
                         .collect::<Vec<_>>()
                         .join(", "),
                 );
@@ -605,6 +766,36 @@ impl<T: SurrealRecord> Create<T> {
         }
         self.returning.render(&mut q);
         q
+    }
+
+    /// Render with `$param` placeholders instead of inlined literals.
+    pub fn to_surrealql_with_params(&self) -> (String, BTreeMap<String, serde_json::Value>) {
+        let mut params = BTreeMap::new();
+        let mut q = String::from("CREATE ");
+        self.target.render_params(&mut q, &mut params);
+        match &self.body {
+            CreateBody::Content(c) => {
+                q.push_str(" CONTENT ");
+                c.render_dyn_params(&mut q, &mut params);
+            }
+            CreateBody::Set(pairs) if !pairs.is_empty() => {
+                q.push_str(" SET ");
+                q.push_str(
+                    &pairs
+                        .iter()
+                        .map(|(k, v)| {
+                            let mut val = String::new();
+                            v.render_dyn_params(&mut val, &mut params);
+                            format!("{k} = {val}")
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+            }
+            CreateBody::Set(_) => {}
+        }
+        self.returning.render(&mut q);
+        (q, params)
     }
 }
 
@@ -655,6 +846,17 @@ impl<T: SurrealRecord> Delete<T> {
         format!("{};\n{}", self.to_surrealql(), select.to_surrealql())
     }
 
+    /// Like [`then_select`](Self::then_select) but renders with `$param` placeholders.
+    pub fn then_select_params(
+        self,
+        select: Select<T>,
+    ) -> (String, BTreeMap<String, serde_json::Value>) {
+        let (mut_q, mut params) = self.to_surrealql_with_params();
+        let (sel_q, sel_params) = select.to_surrealql_with_params();
+        params.extend(sel_params);
+        (format!("{mut_q};\n{sel_q}"), params)
+    }
+
     pub fn to_surrealql(&self) -> String {
         let mut q = String::from("DELETE ");
         self.target.render(&mut q);
@@ -664,6 +866,19 @@ impl<T: SurrealRecord> Delete<T> {
         }
         self.returning.render(&mut q);
         q
+    }
+
+    /// Render with `$param` placeholders instead of inlined literals.
+    pub fn to_surrealql_with_params(&self) -> (String, BTreeMap<String, serde_json::Value>) {
+        let mut params = BTreeMap::new();
+        let mut q = String::from("DELETE ");
+        self.target.render_params(&mut q, &mut params);
+        if let Some(ref f) = self.filter {
+            q.push_str(" WHERE ");
+            f.render_dyn_params(&mut q, &mut params);
+        }
+        self.returning.render(&mut q);
+        (q, params)
     }
 }
 
@@ -814,6 +1029,60 @@ impl<E: SurrealEdge> RelateEdge<E> {
             ));
         }
         q
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LET — session-scoped variable assignment
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Builds a `LET $var = <expr>` statement for session-scoped variables.
+/// The variable is available in subsequent queries within the same session.
+///
+/// ```ignore
+/// LetVar::new("limit", 10u32).to_surrealql();      // LET $limit = 10;
+/// LetVar::new("ts", Raw("time::now()")).to_surrealql(); // LET $ts = time::now();
+/// ```
+pub struct LetVar {
+    name: String,
+    value: Box<dyn DynExpr>,
+}
+
+impl LetVar {
+    /// Create a `LET $name = <expr>` statement.
+    pub fn new(name: impl Into<String>, value: impl DynExpr + 'static) -> Self {
+        Self {
+            name: name.into(),
+            value: Box::new(value),
+        }
+    }
+
+    /// Create a `LET $name = <literal>` statement.
+    pub fn literal<V: SurrealQL>(name: impl Into<String>, value: V) -> Self {
+        Self {
+            name: name.into(),
+            value: Box::new(crate::expr::Literal(value)),
+        }
+    }
+
+    pub fn to_surrealql(&self) -> String {
+        let mut q = format!("LET ${} = ", self.name);
+        self.value.render_dyn(&mut q);
+        q
+    }
+
+    /// Render with `$param` placeholders (the `LET` value becomes a `$param`).
+    pub fn to_surrealql_with_params(&self) -> (String, BTreeMap<String, serde_json::Value>) {
+        let mut params = BTreeMap::new();
+        let mut q = format!("LET ${} = ", self.name);
+        self.value.render_dyn_params(&mut q, &mut params);
+        (q, params)
+    }
+}
+
+impl std::fmt::Display for LetVar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_surrealql())
     }
 }
 

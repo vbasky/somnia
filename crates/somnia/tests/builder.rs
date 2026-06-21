@@ -608,4 +608,177 @@ mod tests {
         p.render_dyn(&mut buf);
         assert_eq!(buf, "->wrote->post.title = 'hi' AND 1 = 1");
     }
+
+    // ─── Param binding ────────────────────────────────────────────────────────
+
+    #[test]
+    fn select_params_replaces_literals_with_numbered_placeholders() {
+        let (sql, params) = User::table()
+            .project(vec![col("name")])
+            .filter(User::name().eq("tobie".to_string()))
+            .to_surrealql_with_params();
+        assert_eq!(sql, "SELECT name FROM user WHERE name = $p0");
+        assert_eq!(params.len(), 1);
+        assert_eq!(params["p0"], serde_json::Value::String("tobie".into()));
+    }
+
+    #[test]
+    fn select_params_multiple_literals_get_unique_names() {
+        let (sql, params) = User::table()
+            .project(vec![col("name")])
+            .filter(
+                User::name()
+                    .eq("alice".to_string())
+                    .and(User::name().ne("bob".to_string())),
+            )
+            .limit(10)
+            .to_surrealql_with_params();
+        assert_eq!(
+            sql,
+            "SELECT name FROM user WHERE name = $p0 AND name != $p1 LIMIT 10"
+        );
+        assert_eq!(params.len(), 2);
+        assert_eq!(params["p0"], serde_json::Value::String("alice".into()));
+        assert_eq!(params["p1"], serde_json::Value::String("bob".into()));
+    }
+
+    #[test]
+    fn select_params_int_and_bool_literals() {
+        // Test that numeric and boolean literals produce correct param values
+        let (sql, params) = User::table()
+            .project(vec![col("name")])
+            .filter(
+                User::name()
+                    .eq("alice".to_string())
+                    .and(Raw("age > 21".into())),
+            )
+            .to_surrealql_with_params();
+        assert_eq!(sql, "SELECT name FROM user WHERE name = $p0 AND age > 21");
+        assert_eq!(params.len(), 1);
+        assert_eq!(params["p0"], serde_json::Value::String("alice".into()));
+    }
+
+    #[test]
+    fn explicit_param_named_placeholder() {
+        use somnia::Param;
+        let title = Param::new("search", "hello".to_string());
+        let title2 = Param::new("search", "hello".to_string());
+        let (sql, params) = Post::table()
+            .project(vec![col("title")])
+            .filter(
+                Post::title()
+                    .eq_expr(title)
+                    .or(Post::title().contains_expr(title2)),
+            )
+            .to_surrealql_with_params();
+        assert_eq!(
+            sql,
+            "SELECT title FROM post WHERE title = $search OR title CONTAINS $search"
+        );
+        assert_eq!(params.len(), 1);
+        assert_eq!(params["search"], serde_json::Value::String("hello".into()));
+    }
+
+    #[test]
+    fn explicit_param_inline_mode_renders_literal() {
+        use somnia::Param;
+        let title = Param::new("search", "hello".to_string());
+        let title2 = Param::new("search", "hello".to_string());
+        let sql = Post::table()
+            .project(vec![col("title")])
+            .filter(
+                Post::title()
+                    .eq_expr(title)
+                    .or(Post::title().contains_expr(title2)),
+            )
+            .to_surrealql();
+        assert_eq!(
+            sql,
+            "SELECT title FROM post WHERE title = 'hello' OR title CONTAINS 'hello'"
+        );
+    }
+
+    #[test]
+    fn update_params_set_literal_and_filter() {
+        let (sql, params) = User::table()
+            .update()
+            .set_lit("name", "new_name".to_string())
+            .filter(User::name().eq("old_name".to_string()))
+            .to_surrealql_with_params();
+        assert_eq!(sql, "UPDATE user SET name = $p0 WHERE name = $p1");
+        assert_eq!(params.len(), 2);
+        assert_eq!(params["p0"], serde_json::Value::String("new_name".into()));
+        assert_eq!(params["p1"], serde_json::Value::String("old_name".into()));
+    }
+
+    #[test]
+    fn create_params_set_columns() {
+        let (sql, params) = User::table()
+            .create()
+            .set_lit("name", "carol".to_string())
+            .set_expr("age", Raw("42".into()))
+            .set_lit("active", true)
+            .to_surrealql_with_params();
+        assert_eq!(sql, "CREATE user SET name = $p0, age = 42, active = $p1");
+        assert_eq!(params.len(), 2);
+        assert_eq!(params["p0"], serde_json::Value::String("carol".into()));
+        assert_eq!(params["p1"], serde_json::Value::Bool(true));
+    }
+
+    #[test]
+    fn delete_params_filter() {
+        let (sql, params) = User::table()
+            .delete()
+            .filter(User::name().eq("tobie".to_string()))
+            .returning(Returning::Before)
+            .to_surrealql_with_params();
+        assert_eq!(sql, "DELETE user WHERE name = $p0 RETURN BEFORE");
+        assert_eq!(params["p0"], serde_json::Value::String("tobie".into()));
+    }
+
+    #[test]
+    fn then_select_params_merges_params_from_both_statements() {
+        let (sql, params) = User::table()
+            .create()
+            .set_lit("name", "dave".to_string())
+            .set_lit("title", "admin".to_string())
+            .then_select_params(
+                User::table()
+                    .project(vec![col("name")])
+                    .filter(User::name().eq("dave".to_string()))
+                    .limit(1),
+            );
+        // Each builder independently numbers from p0; same-value params deduplicate.
+        assert_eq!(
+            sql,
+            "CREATE user SET name = $p0, title = $p1;\nSELECT name FROM user WHERE name = $p0 LIMIT 1"
+        );
+        assert_eq!(params.len(), 2);
+        assert_eq!(params["p0"], serde_json::Value::String("dave".into()));
+        assert_eq!(params["p1"], serde_json::Value::String("admin".into()));
+    }
+
+    // ─── LET ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn let_var_renders_assignment() {
+        use somnia::LetVar;
+        let sql = LetVar::literal("limit", 10u32).to_surrealql();
+        assert_eq!(sql, "LET $limit = 10");
+    }
+
+    #[test]
+    fn let_var_with_expression() {
+        use somnia::LetVar;
+        let sql = LetVar::new("ts", Raw("time::now()".into())).to_surrealql();
+        assert_eq!(sql, "LET $ts = time::now()");
+    }
+
+    #[test]
+    fn let_var_with_params_collects_value() {
+        use somnia::LetVar;
+        let (sql, params) = LetVar::literal("name", "alice".to_string()).to_surrealql_with_params();
+        assert_eq!(sql, "LET $name = $p0");
+        assert_eq!(params["p0"], serde_json::Value::String("alice".into()));
+    }
 }

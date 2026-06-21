@@ -37,10 +37,10 @@ pub mod types;
 
 pub use expr::{
     col, field, ident, Column, ColumnMeta, ColumnSet, DynExpr, DynExprBox, Expr, Func, Grouped,
-    Ident, NoneLit, Order, Path, Projection, Raw, RecordLink, SurrealQL,
+    Ident, NoneLit, Order, Param, Path, Projection, Raw, RecordLink, SurrealQL,
 };
 pub use query::{
-    Batch, Create, DefineIndex, Delete, Insert, Relate, RelateEdge, Returning, Select, Table,
-    Update,
+    Batch, Create, DefineIndex, Delete, Insert, LetVar, Relate, RelateEdge, Returning, Select,
+    Table, Update,
 };
 pub use types::{Key, SurrealEdge, SurrealRecord, SurrealSchema, Thing};
