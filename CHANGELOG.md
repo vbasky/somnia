@@ -10,7 +10,13 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
-### Changed (breaking)
+## [0.7.0] - 2026-06-22
+
+Pre-1.0 API stabilization plus release-pipeline hardening. **Breaking** in two
+small ways — update `count("")` → `count()`, and deref any `&String` args to
+builder string methods. Bump your dependency to `somnia = "0.7"`.
+
+### Changed (0.7.0)
 
 - **(Breaking) `Table::count()` drops its ignored argument** — was
   `count(field: &str)` (the field was never used); now `count()`. Update
@@ -19,22 +25,18 @@ notes, so keep this format intact.
   consistency with the newer builders: `Select::fetch`/`omit`/`split`,
   `Create`/`Update::set_lit`/`set_expr`/`set_raw` (the `col` name), and
   `DefineIndex::search`/`hnsw`/`mtree`. `&str` literals and `String` still work;
-  callers passing `&String` must deref (`&*s` → `s.clone()` or `s.as_str()`).
-  Part of the pre-1.0 API stabilization pass.
-
-### Fixed
-
-- **Docs** — removed a broken intra-doc link in the `SurrealEdge` derive doc
-  (the proc-macro crate can't resolve `::somnia_core::…` paths), which failed
-  `cargo doc -D warnings` in CI.
-
-### Changed
-
+  callers passing `&String` must deref (`s.as_str()` or `s.clone()`).
 - **Release pipeline** — `scripts/release.sh` now runs `cargo doc -D warnings`
   before tagging (catches broken doc links pre-release), and the publish workflow
   retries each `cargo publish` up to 5× with a 30s backoff to ride out crates.io
   index-propagation lag (which had left `somnia-cli` unpublished in 0.6.0 until a
   manual re-run).
+
+### Fixed (0.7.0)
+
+- **Docs** — removed a broken intra-doc link in the `SurrealEdge` derive doc
+  (the proc-macro crate can't resolve `::somnia_core::…` paths), which failed
+  `cargo doc -D warnings` in CI.
 
 ## [0.6.0] - 2026-06-21
 
