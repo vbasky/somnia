@@ -60,7 +60,7 @@ literals for string/int/float/bool/`datetime`(`d'…'`)/`uuid`(`u'…'`)/`durati
   `Duration`. (0.5.2) Remaining nuance: `bytes` and array/object record-id key
   types still map structurally but lack dedicated literal support.
 
-## What's next (P2 — completeness)
+## P2 — completeness — ✅ complete
 
 P2 closes the gap between "everything you need for typical CRUD + graph reads"
 and "everything SurrealDB's query surface can express." Each item below turns a
@@ -103,13 +103,11 @@ frequent drop to `Raw` into a typed node.
   and `For` builds `FOR $item IN <array> { <body> }`. Both validated against the
   live engine. **(unreleased)**
 
-- [ ] **Edge derive.** A `#[derive(SurrealEdge)]` proc-macro (or an attribute on
-  `SurrealRecord`) so that `impl SurrealEdge for MyEdge { fn edge_name() …
-  }` is generated rather than hand-written. Drive-by: the derive's internal
-  `_flexible` flag should plumb through to `DEFINE FIELD … FLEXIBLE` (today the
-  keyword is parsed from `#[field(flexible)]` but only surfaces in the
-  container-level `schemaless` / field-level type `TYPE flexible` path; the
-  dedicated `FLEXIBLE` keyword on the field itself wants its own render).
+- [x] **Edge derive.** `#[derive(SurrealEdge)]` generates the `impl SurrealEdge`
+  (edge name from `#[table(...)]`), so it no longer needs to be hand-written —
+  derive it alongside `SurrealRecord`. The `#[field(flexible)]` drive-by is
+  covered: the derive renders `DEFINE FIELD … FLEXIBLE TYPE …` (regression test
+  added). **(unreleased)**
 
 - [ ] **1.0 cleanup.** Before 1.0: remove the unused `_field: &str` parameter
   from `Table::count()` (vestigial API, always ignored), audit the builder

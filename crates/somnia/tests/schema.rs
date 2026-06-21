@@ -165,6 +165,24 @@ DEFINE FIELD IF NOT EXISTS created_at ON TABLE asset_version TYPE datetime DEFAU
         secret: String,
     }
 
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, SurrealRecord)]
+    #[table("blob_holder")]
+    #[allow(dead_code)]
+    struct BlobHolder {
+        #[field(thing)]
+        id: Thing<BlobHolder>,
+        #[field(flexible)]
+        meta: serde_json::Value,
+    }
+
+    #[test]
+    fn flexible_field_renders_flexible_keyword() {
+        assert_eq!(
+            BlobHolder::define_fields(),
+            &["DEFINE FIELD IF NOT EXISTS meta ON TABLE blob_holder FLEXIBLE TYPE object;"]
+        );
+    }
+
     #[test]
     fn field_assert_readonly_permissions_ddl() {
         assert_eq!(

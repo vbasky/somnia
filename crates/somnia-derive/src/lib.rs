@@ -236,6 +236,35 @@ pub fn derive_surreal_record(input: TokenStream) -> TokenStream {
     gen.into()
 }
 
+/// Derive [`SurrealEdge`](::somnia_core::SurrealEdge) for an edge record, so the
+/// `impl SurrealEdge { fn edge_name() … }` no longer needs to be hand-written.
+///
+/// The edge name comes from `#[table("name")]` (same as `SurrealRecord`), or the
+/// lowercased struct name if omitted. Derive it alongside `SurrealRecord`:
+///
+/// ```ignore
+/// #[derive(SurrealRecord, SurrealEdge, Serialize, Deserialize)]
+/// #[table("follows")]
+/// struct Follows {
+///     #[field(thing)] id: Thing<Follows>,
+/// }
+/// assert_eq!(Follows::edge_name(), "follows");
+/// ```
+#[proc_macro_derive(SurrealEdge, attributes(table))]
+pub fn derive_surreal_edge(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let edge_name = parse_table_attr(&input.attrs)
+        .map(|t| t.name)
+        .unwrap_or_else(|| name.to_string().to_lowercase());
+    quote! {
+        impl ::somnia_core::SurrealEdge for #name {
+            fn edge_name() -> &'static str { #edge_name }
+        }
+    }
+    .into()
+}
+
 struct FieldDef {
     accessor_name: syn::Ident,
     db_name: String,

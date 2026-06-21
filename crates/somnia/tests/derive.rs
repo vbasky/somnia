@@ -96,6 +96,28 @@ mod tests {
         }
     }
 
+    // The `SurrealEdge` derive generates the same impl from `#[table(...)]`.
+    #[derive(
+        Debug, Clone, serde::Serialize, serde::Deserialize, SurrealRecord, somnia::SurrealEdge,
+    )]
+    #[table("likes")]
+    #[allow(dead_code)]
+    struct Likes {
+        #[field(thing)]
+        id: Thing<Likes>,
+    }
+
+    #[test]
+    fn derived_edge_name_and_relate() {
+        assert_eq!(Likes::edge_name(), "likes");
+        let a: Thing<User> = Thing::new("a");
+        let b: Thing<User> = Thing::new("b");
+        assert_eq!(
+            Relate::<Likes>::to_surrealql(&a, &b),
+            "RELATE user:a -> likes -> user:b"
+        );
+    }
+
     #[test]
     fn relate_uses_record_tables_and_edge_name() {
         let alice: Thing<User> = Thing::new("alice");

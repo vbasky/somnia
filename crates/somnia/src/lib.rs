@@ -51,4 +51,4 @@ pub use somnia_core::{
     types::{Key, SurrealEdge, SurrealRecord, SurrealSchema, Thing},
     DynExprBox, Func, Grouped, Ident, NoneLit, Projection, Raw, RecordLink,
 };
-pub use somnia_derive::SurrealRecord;
+pub use somnia_derive::{SurrealEdge, SurrealRecord};

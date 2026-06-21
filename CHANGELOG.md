@@ -12,6 +12,10 @@ notes, so keep this format intact.
 
 ### Added
 
+- **Edge derive (P2)** — `#[derive(SurrealEdge)]` generates the `SurrealEdge`
+  impl (edge name from `#[table(...)]`), replacing the hand-written
+  `impl SurrealEdge`. The derive also renders `FLEXIBLE` on `#[field(flexible)]`
+  fields (`DEFINE FIELD … FLEXIBLE TYPE …`).
 - **Control flow (P2)** — `IfExpr` (`IF … THEN … ELSE IF … ELSE … END`) as a
   `DynExpr` usable in any expression position, and a `For` builder
   (`FOR $item IN <array> { <body> }`). Both validated against the live engine.
