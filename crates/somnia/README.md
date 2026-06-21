@@ -17,7 +17,7 @@ migrations.
 
 ```toml
 [dependencies]
-somnia = "0.6"
+somnia = "0.7"
 ```
 
 ---
@@ -293,7 +293,7 @@ the full list).
 
 ## Status
 
-`0.6.x` — early but tested against SurrealDB 3.x (query builder, derive, schema
+`0.7.x` — early but tested against SurrealDB 3.x (query builder, derive, schema
 generation, and migrator all covered by integration tests that run on an
 in-memory engine). The API may evolve before `1.0`. See the
 [roadmap](https://github.com/vbasky/somnia/blob/main/ROADMAP.md) for what's covered today and what's planned on the way to
