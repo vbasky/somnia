@@ -41,6 +41,6 @@ pub use expr::{
 };
 pub use query::{
     Batch, Create, DefineIndex, Delete, Insert, LetVar, Relate, RelateEdge, Returning, Select,
-    Table, Update,
+    Table, Transaction, Update,
 };
 pub use types::{Key, SurrealEdge, SurrealRecord, SurrealSchema, Thing};

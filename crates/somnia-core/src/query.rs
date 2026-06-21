@@ -928,6 +928,70 @@ impl std::fmt::Display for Batch {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Transaction — BEGIN … COMMIT/CANCEL (atomic multi-statement)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Wraps statements in a SurrealDB transaction —
+/// `BEGIN TRANSACTION; … ; COMMIT TRANSACTION;`. Either every statement applies
+/// or none do: SurrealDB rolls the whole block back if any statement errors, and
+/// [`cancel`](Self::cancel) terminates with `CANCEL TRANSACTION` to roll back
+/// explicitly. Unlike [`Batch`] (a plain `;`-joined sequence), a transaction is
+/// atomic.
+///
+/// Push already-rendered statements (`to_surrealql()` output); each is
+/// `;`-terminated automatically.
+#[derive(Default)]
+pub struct Transaction {
+    statements: Vec<String>,
+    cancel: bool,
+}
+
+impl Transaction {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Add a statement to the transaction body.
+    pub fn push(mut self, stmt: impl ToString) -> Self {
+        self.statements.push(stmt.to_string());
+        self
+    }
+    /// Terminate with `CANCEL TRANSACTION` (roll back) instead of `COMMIT`.
+    pub fn cancel(mut self) -> Self {
+        self.cancel = true;
+        self
+    }
+    pub fn to_surrealql(&self) -> String {
+        let mut out = String::from("BEGIN TRANSACTION;\n");
+        for s in &self.statements {
+            out.push_str(s);
+            if !s.trim_end().ends_with(';') {
+                out.push(';');
+            }
+            out.push('\n');
+        }
+        out.push_str(if self.cancel {
+            "CANCEL TRANSACTION;"
+        } else {
+            "COMMIT TRANSACTION;"
+        });
+        out
+    }
+    /// Number of statements in the transaction body (excludes BEGIN/COMMIT).
+    pub fn len(&self) -> usize {
+        self.statements.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.statements.is_empty()
+    }
+}
+
+impl std::fmt::Display for Transaction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_surrealql())
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // RELATE — graph edges
 // ═══════════════════════════════════════════════════════════════════════════════
 

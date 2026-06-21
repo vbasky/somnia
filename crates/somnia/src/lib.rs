@@ -43,7 +43,7 @@ pub use somnia_core::{
     field, ident,
     query::{
         Batch, Create, DefineIndex, Delete, Insert, LetVar, Relate, RelateEdge, Returning, Select,
-        Table, Update,
+        Table, Transaction, Update,
     },
     types::{Key, SurrealEdge, SurrealRecord, SurrealSchema, Thing},
     DynExprBox, Func, Grouped, Ident, NoneLit, Projection, Raw, RecordLink,

@@ -5,7 +5,7 @@
 
 #[cfg(test)]
 mod tests {
-    use somnia::{SurrealRecord, SurrealSchema, Thing};
+    use somnia::{SurrealRecord, SurrealSchema, Thing, Transaction};
 
     // Mirrors the `asset_version` table from migration 027 — the Rust type is now
     // the single source of truth for that schema.
@@ -145,6 +145,39 @@ DEFINE FIELD IF NOT EXISTS created_at ON TABLE asset_version TYPE datetime DEFAU
                 dup.is_err(),
                 "UNIQUE index should reject the duplicate email"
             );
+        });
+    }
+
+    #[test]
+    fn transaction_is_atomic_on_live_surreal() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let db = surrealdb::engine::any::connect("mem://").await.unwrap();
+            db.use_ns("t").use_db("t").await.unwrap();
+            db.query(Member::up()).await.unwrap().check().unwrap();
+
+            // Two inserts in one transaction; the second reuses the first's email,
+            // violating the UNIQUE index. The whole transaction must roll back.
+            let tx = Transaction::new()
+                .push("CREATE member SET email = 'dup@x.com', first_name = 'A', last_name = 'B'")
+                .push("CREATE member SET email = 'dup@x.com', first_name = 'C', last_name = 'D'");
+            let res = db.query(tx.to_surrealql()).await.unwrap().check();
+            assert!(res.is_err(), "transaction should fail on the duplicate");
+
+            // Atomicity: the first insert must NOT have persisted.
+            let mut count = db
+                .query("SELECT count() FROM member GROUP ALL;")
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            let rows: Vec<serde_json::Value> = count.take(0).unwrap();
+            let n = rows
+                .first()
+                .and_then(|r| r.get("count"))
+                .and_then(|c| c.as_i64())
+                .unwrap_or(0);
+            assert_eq!(n, 0, "rolled-back transaction must leave no rows");
         });
     }
 

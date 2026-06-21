@@ -6,7 +6,7 @@
 mod tests {
     use somnia::{
         col, field, ident, Batch, DefineIndex, Grouped, NoneLit, Path, Raw, RecordLink, Returning,
-        SurrealEdge, SurrealRecord, Thing,
+        SurrealEdge, SurrealRecord, Thing, Transaction,
     };
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, SurrealRecord)]
@@ -479,6 +479,41 @@ mod tests {
         assert_eq!(
             sql,
             "SELECT name FROM user WHERE ->wrote->post CONTAINS post:p1"
+        );
+    }
+
+    // ─── Transactions ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn transaction_wraps_begin_commit() {
+        let create = AssetComment::table()
+            .create()
+            .record("n".to_string())
+            .content(Raw("{ body: 'x' }".into()))
+            .to_surrealql();
+        let tx = Transaction::new()
+            .push(create)
+            .push("UPDATE asset_comment SET is_resolved = true");
+        assert_eq!(tx.len(), 2);
+        assert_eq!(
+            tx.to_surrealql(),
+            "BEGIN TRANSACTION;\n\
+             CREATE type::record('asset_comment', 'n') CONTENT { body: 'x' };\n\
+             UPDATE asset_comment SET is_resolved = true;\n\
+             COMMIT TRANSACTION;"
+        );
+    }
+
+    #[test]
+    fn transaction_cancel_rolls_back() {
+        let tx = Transaction::new()
+            .push("CREATE asset_comment SET body = 'x'")
+            .cancel();
+        assert_eq!(
+            tx.to_surrealql(),
+            "BEGIN TRANSACTION;\n\
+             CREATE asset_comment SET body = 'x';\n\
+             CANCEL TRANSACTION;"
         );
     }
 

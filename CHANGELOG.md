@@ -12,6 +12,10 @@ notes, so keep this format intact.
 
 ### Added
 
+- **Transactions (P2)** — a `Transaction` builder wraps pushed statements in
+  `BEGIN TRANSACTION; … ; COMMIT TRANSACTION;` (or `CANCEL TRANSACTION` via
+  `.cancel()`), giving atomic, roll-back-on-error semantics that the
+  `;`-concatenated `Batch` doesn't. Verified atomic against a live engine.
 - **Parameters / `LET` (P2)** — an opt-in `$param`-binding mode alongside the
   default inline rendering. `to_surrealql_with_params()` on `Select`/`Create`/
   `Update`/`Delete` (and `then_select_params()` on the mutations) returns

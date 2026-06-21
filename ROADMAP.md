@@ -14,7 +14,8 @@ SurrealQL. Checkboxes track status; nothing here is a commitment to a date.
 **Covered:** `SELECT` (projections, `WHERE`, `ORDER BY`, `LIMIT`, `START`,
 `FETCH`, `GROUP BY`/`GROUP ALL`, `count()`), graph traversal in `SELECT`
 (`->edge->table`, recursive `@.{..}` paths), `CREATE`, `INSERT`, `UPDATE`
-(`SET`/`MERGE`/`CONTENT`), `UPSERT`, `DELETE`, `RELATE` (+ edge content), `Batch`;
+(`SET`/`MERGE`/`CONTENT`), `UPSERT`, `DELETE`, `RELATE` (+ edge content), `Batch`,
+transactions (`BEGIN`/`COMMIT`/`CANCEL`);
 `then_select()` mutate-and-reselect on `CREATE`/`UPDATE`/`DELETE`;
 `$param` binding (`to_surrealql_with_params()`, `Param<V>`), `LET $var`;
 comparison/logical operators, `type::record(...)` links, generic function calls;
@@ -65,13 +66,12 @@ P2 closes the gap between "everything you need for typical CRUD + graph reads"
 and "everything SurrealDB's query surface can express." Each item below turns a
 frequent drop to `Raw` into a typed node.
 
-- [ ] **Transactions.** Typed `BEGIN` / `COMMIT` / `CANCEL` statement nodes that
-  wrap a child statement or `Batch`. Unlike today's `;`-concatenated `Batch`,
-  transactions give you atomicity and the ability to roll back on error. The
-  builder API should accept a closure/block so the body is statement-set at
-  compile time, with `return` / `continue` / `break` surfaces (SurrealDB's
-  `RETURN`-inside-transaction) exposed as part of the path to typed control
-  flow.
+- [x] **Transactions.** A `Transaction` builder wraps pushed statements in
+  `BEGIN TRANSACTION; … ; COMMIT TRANSACTION;` (or `CANCEL TRANSACTION` via
+  `.cancel()`). Unlike the `;`-concatenated `Batch`, the block is atomic —
+  SurrealDB rolls every statement back if any errors. Verified against the live
+  engine. **(unreleased)** Still open as a path to typed control flow: a
+  closure/block body and `RETURN`-inside-transaction surfaces.
 
 - [x] **Parameters / `LET`.** Today somnia inlines all values as escaped
   literals — the output of `to_surrealql()` is a self-contained string ready to
@@ -81,7 +81,7 @@ frequent drop to `Raw` into a typed node.
   `to_surrealql_with_params() -> (String, BTreeMap<String, Value>)`. The
   existing inlining path stays the default; opt-in binding is additive.
   SurrealDB's `LET $var = …` also needs a builder for session-scoped variables.
-  **(0.6.0)**
+  **(unreleased)**
 
 - [ ] **`SELECT` extras.** Subqueries (a `Select<T>` used as a `DynExpr` inside
   `WHERE x IN (<subquery>)` / scalar subqueries / `FROM (<subquery>)`),
