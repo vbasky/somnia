@@ -1224,6 +1224,79 @@ impl DynExpr for Grouped {
 combinators!(Grouped, Func, Path);
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// IfExpr — IF … THEN … ELSE IF … ELSE … END
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// A SurrealQL `IF <cond> THEN <expr> [ELSE IF <cond> THEN <expr>]… [ELSE <expr>]
+/// END` expression. As a [`DynExpr`] it nests anywhere an expression is taken —
+/// a `SET` value, a `SELECT` projection, a `RETURN`, or a `WHERE`.
+///
+/// ```ignore
+/// IfExpr::new(Raw("age >= 18".into()), Raw("'adult'".into()))
+///     .else_if(Raw("age >= 13".into()), Raw("'teen'".into()))
+///     .else_(Raw("'child'".into()));
+/// // IF age >= 18 THEN 'adult' ELSE IF age >= 13 THEN 'teen' ELSE 'child' END
+/// ```
+#[derive(Debug)]
+pub struct IfExpr {
+    branches: Vec<(Box<dyn DynExpr>, Box<dyn DynExpr>)>,
+    else_branch: Option<Box<dyn DynExpr>>,
+}
+
+impl IfExpr {
+    /// Begin `IF <cond> THEN <then>`.
+    pub fn new(cond: impl DynExpr + 'static, then: impl DynExpr + 'static) -> Self {
+        Self {
+            branches: vec![(Box::new(cond), Box::new(then))],
+            else_branch: None,
+        }
+    }
+    /// Add an `ELSE IF <cond> THEN <then>` branch.
+    pub fn else_if(mut self, cond: impl DynExpr + 'static, then: impl DynExpr + 'static) -> Self {
+        self.branches.push((Box::new(cond), Box::new(then)));
+        self
+    }
+    /// Add the trailing `ELSE <expr>` branch.
+    pub fn else_(mut self, expr: impl DynExpr + 'static) -> Self {
+        self.else_branch = Some(Box::new(expr));
+        self
+    }
+}
+
+impl DynExpr for IfExpr {
+    fn render_dyn(&self, buf: &mut String) {
+        for (i, (cond, then)) in self.branches.iter().enumerate() {
+            buf.push_str(if i == 0 { "IF " } else { " ELSE IF " });
+            cond.render_dyn(buf);
+            buf.push_str(" THEN ");
+            then.render_dyn(buf);
+        }
+        if let Some(e) = &self.else_branch {
+            buf.push_str(" ELSE ");
+            e.render_dyn(buf);
+        }
+        buf.push_str(" END");
+    }
+    fn render_dyn_params(
+        &self,
+        buf: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        for (i, (cond, then)) in self.branches.iter().enumerate() {
+            buf.push_str(if i == 0 { "IF " } else { " ELSE IF " });
+            cond.render_dyn_params(buf, params);
+            buf.push_str(" THEN ");
+            then.render_dyn_params(buf, params);
+        }
+        if let Some(e) = &self.else_branch {
+            buf.push_str(" ELSE ");
+            e.render_dyn_params(buf, params);
+        }
+        buf.push_str(" END");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Projection — a SELECT field, optionally `<expr> AS alias`
 // ═══════════════════════════════════════════════════════════════════════════════
 

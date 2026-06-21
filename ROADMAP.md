@@ -98,12 +98,10 @@ frequent drop to `Raw` into a typed node.
   Validated against the live engine (ASSERT rejects invalid writes, the function
   is callable, the param resolves). **(unreleased)**
 
-- [ ] **Control flow.** Typed `IF … THEN … ELSE IF … ELSE … END` and
-  `FOR $item IN <array>` builders that compose as `DynExpr` nodes. SurrealDB
-  blocks (`{ … }`) are already partially covered by the `Block` lowering inside
-  expressions, but the higher-level control-flow constructs need purpose-built
-  AST nodes so you can write a `FOR` loop inside a `SET` clause or an `IF`
-  inside a `RETURN` without dropping to `Raw`.
+- [x] **Control flow.** `IfExpr` is a `DynExpr` rendering
+  `IF … THEN … ELSE IF … ELSE … END` (usable in `SET`/projection/`RETURN`/`WHERE`),
+  and `For` builds `FOR $item IN <array> { <body> }`. Both validated against the
+  live engine. **(unreleased)**
 
 - [ ] **Edge derive.** A `#[derive(SurrealEdge)]` proc-macro (or an attribute on
   `SurrealRecord`) so that `impl SurrealEdge for MyEdge { fn edge_name() …

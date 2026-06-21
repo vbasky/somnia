@@ -1302,6 +1302,62 @@ impl std::fmt::Display for LetVar {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// FOR — iterate over an array, running a body per element
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Builds a `FOR $<var> IN <array> { <body> }` loop. The loop variable `$<var>`
+/// is bound inside the body; push one or more statements as the body.
+///
+/// ```ignore
+/// For::new("n", Raw("[1, 2, 3]".into()))
+///     .push("CREATE counter SET v = $n")
+///     .to_surrealql();
+/// // FOR $n IN [1, 2, 3] { CREATE counter SET v = $n; }
+/// ```
+pub struct For {
+    var: String,
+    array: Box<dyn DynExpr>,
+    body: Vec<String>,
+}
+
+impl For {
+    /// `FOR $<var> IN <array>` — the array is any expression (a literal array, a
+    /// `$param`, a subquery, …).
+    pub fn new(var: impl Into<String>, array: impl DynExpr + 'static) -> Self {
+        Self {
+            var: var.into(),
+            array: Box::new(array),
+            body: Vec::new(),
+        }
+    }
+    /// Add a statement to the loop body.
+    pub fn push(mut self, stmt: impl Into<String>) -> Self {
+        self.body.push(stmt.into());
+        self
+    }
+    pub fn to_surrealql(&self) -> String {
+        let mut q = format!("FOR ${} IN ", self.var);
+        self.array.render_dyn(&mut q);
+        q.push_str(" { ");
+        for s in &self.body {
+            q.push_str(s);
+            if !s.trim_end().ends_with(';') {
+                q.push(';');
+            }
+            q.push(' ');
+        }
+        q.push('}');
+        q
+    }
+}
+
+impl std::fmt::Display for For {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_surrealql())
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // DEFINE INDEX
 // ═══════════════════════════════════════════════════════════════════════════════
 

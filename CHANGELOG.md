@@ -12,6 +12,9 @@ notes, so keep this format intact.
 
 ### Added
 
+- **Control flow (P2)** — `IfExpr` (`IF … THEN … ELSE IF … ELSE … END`) as a
+  `DynExpr` usable in any expression position, and a `For` builder
+  (`FOR $item IN <array> { <body> }`). Both validated against the live engine.
 - **More schema DDL (P2)** — standalone builders `DefineEvent`, `DefineFunction`
   (`fn::`-prefixed, typed args, return type, body), `DefineAnalyzer` (tokenizers +
   filters), and `DefineParam` (`$`-prefixed, raw or typed value), each with a

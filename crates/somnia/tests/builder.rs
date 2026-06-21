@@ -6,7 +6,7 @@
 mod tests {
     use somnia::{
         col, field, ident, Batch, DefineAnalyzer, DefineEvent, DefineFunction, DefineIndex,
-        DefineParam, Grouped, NoneLit, Path, Raw, RecordLink, Returning, SurrealEdge,
+        DefineParam, For, Grouped, IfExpr, NoneLit, Path, Raw, RecordLink, Returning, SurrealEdge,
         SurrealRecord, Thing, Transaction,
     };
 
@@ -683,6 +683,45 @@ mod tests {
             .returning(Returning::After)
             .to_surrealql();
         assert!(sql.ends_with(" RETURN AFTER"), "got: {sql}");
+    }
+
+    // ─── Control flow (IF / FOR) ───────────────────────────────────────────────
+
+    #[test]
+    fn if_expr_chain() {
+        let e = IfExpr::new(Raw("age >= 18".into()), Raw("'adult'".into()))
+            .else_if(Raw("age >= 13".into()), Raw("'teen'".into()))
+            .else_(Raw("'child'".into()));
+        let mut buf = String::new();
+        use somnia::DynExpr;
+        e.render_dyn(&mut buf);
+        assert_eq!(
+            buf,
+            "IF age >= 18 THEN 'adult' ELSE IF age >= 13 THEN 'teen' ELSE 'child' END"
+        );
+    }
+
+    #[test]
+    fn if_expr_no_else_as_projection() {
+        // IF used as a SELECT projection value.
+        let sql = SystemSetting::table()
+            .project(vec![somnia::Projection::aliased(
+                IfExpr::new(ident("value").is_none(), Raw("'unset'".into())),
+                "label",
+            )])
+            .to_surrealql();
+        assert_eq!(
+            sql,
+            "SELECT IF value IS NONE THEN 'unset' END AS label FROM system_settings"
+        );
+    }
+
+    #[test]
+    fn for_loop() {
+        let sql = For::new("n", Raw("[1, 2, 3]".into()))
+            .push("CREATE counter SET v = $n")
+            .to_surrealql();
+        assert_eq!(sql, "FOR $n IN [1, 2, 3] { CREATE counter SET v = $n; }");
     }
 
     // ─── Transactions ─────────────────────────────────────────────────────────

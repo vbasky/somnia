@@ -6,8 +6,8 @@
 #[cfg(test)]
 mod tests {
     use somnia::{
-        DefineAnalyzer, DefineEvent, DefineFunction, DefineParam, SurrealRecord, SurrealSchema,
-        Thing, Transaction,
+        DefineAnalyzer, DefineEvent, DefineFunction, DefineParam, For, IfExpr, SurrealRecord,
+        SurrealSchema, Thing, Transaction,
     };
 
     // Mirrors the `asset_version` table from migration 027 — the Rust type is now
@@ -245,6 +245,39 @@ DEFINE FIELD IF NOT EXISTS created_at ON TABLE asset_version TYPE datetime DEFAU
             let mut res = db.query("RETURN $rate;").await.unwrap().check().unwrap();
             let rate: Option<f64> = res.take(0).unwrap();
             assert_eq!(rate, Some(0.5));
+        });
+    }
+
+    #[test]
+    fn control_flow_runs_on_live_surreal() {
+        use somnia::{DynExpr, Raw};
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let db = surrealdb::engine::any::connect("mem://").await.unwrap();
+            db.use_ns("t").use_db("t").await.unwrap();
+
+            // FOR loop creates three rows.
+            let for_sql = For::new("n", Raw("[1, 2, 3]".into()))
+                .push("CREATE counter SET v = $n")
+                .to_surrealql();
+            db.query(&for_sql).await.unwrap().check().unwrap();
+            let mut res = db
+                .query("SELECT count() FROM counter GROUP ALL;")
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            let rows: Vec<serde_json::Value> = res.take(0).unwrap();
+            assert_eq!(rows[0]["count"].as_i64(), Some(3));
+
+            // IF expression evaluates the matching branch.
+            let mut if_buf = String::from("RETURN ");
+            IfExpr::new(Raw("5 > 3".into()), Raw("'yes'".into()))
+                .else_(Raw("'no'".into()))
+                .render_dyn(&mut if_buf);
+            let mut res = db.query(&if_buf).await.unwrap().check().unwrap();
+            let out: Option<String> = res.take(0).unwrap();
+            assert_eq!(out.as_deref(), Some("yes"));
         });
     }
 
