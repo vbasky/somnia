@@ -10,7 +10,14 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
-### Added
+## [0.6.0] - 2026-06-21
+
+Completes the **P2** ("completeness") roadmap tier — transactions, parameter
+binding, `SELECT` extras, more schema DDL, control flow, and the edge derive.
+Every change is API-additive, but the breadth of new functionality earns a minor
+bump (update your dependency to `somnia = "0.6"`).
+
+### Added (0.6.0)
 
 - **Edge derive (P2)** — `#[derive(SurrealEdge)]` generates the `SurrealEdge`
   impl (edge name from `#[table(...)]`), replacing the hand-written
@@ -47,11 +54,13 @@ notes, so keep this format intact.
   `LET $var = <expr>`, and `SomniaClient::query_with_params()` binds and runs the
   pair. The inline `to_surrealql()` path is unchanged.
 
-### Changed
+### Changed (0.6.0)
 
-- **README** — documented the P1 features shipped through 0.5.2: a graph-traversal
-  example (`Path`, recursive paths), the `#[index(...)]` derive attribute and
-  `DefineIndex` builder, and the richer field-type mapping. Docs only.
+- **README** — documented the P1 features (graph traversal, `#[index(...)]` /
+  `DefineIndex`, richer field types) and added a "More query power" section
+  covering the P2 surface (transactions, `$param` binding, subqueries, `SELECT`
+  modifiers, `DEFINE EVENT`/`FUNCTION`, `IfExpr`/`For`, `#[derive(SurrealEdge)]`).
+  Docs only.
 
 ## [0.5.2] - 2026-06-20
 

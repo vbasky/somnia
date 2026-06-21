@@ -37,6 +37,9 @@ Rust types describe the schema once and gives you:
   `DEFINE INDEX` / `REMOVE TABLE` from the Rust type.
 - **Diesel-style migrations** — a `Migrator` that applies `up.surql` /
   reverts `down.surql` from timestamped folders, with applied-state tracking.
+- **The rest of SurrealQL, typed** — atomic transactions, `$param` binding,
+  subqueries, `IF`/`FOR` control flow, and `DEFINE EVENT`/`FUNCTION`/`ANALYZER`/
+  `PARAM` — so you rarely drop to `Raw(...)`.
 
 `somnia` **inlines literals** (with proper escaping) rather than relying on bind
 parameters — `to_surrealql()` returns a ready-to-run statement string, which keeps
@@ -214,13 +217,55 @@ for m in migrator.status().await? {
 Applied migrations are tracked in a `_somnia_migrations` table, so re-running only
 applies what's pending.
 
+### More query power
+
+Beyond CRUD, somnia models much of SurrealDB's surface as typed builders:
+
+```rust
+use somnia::{col, ident, Transaction, IfExpr, For, DefineEvent, DefineFunction, Raw};
+
+// Atomic transaction — all statements commit, or none do
+let tx = Transaction::new()
+    .push(Post::table().create().record("p1".to_string()).set_lit("title", "Hi".to_string()))
+    .push("UPDATE counter SET posts += 1")
+    .to_surrealql(); // BEGIN TRANSACTION; … ; COMMIT TRANSACTION;
+
+// $param binding instead of inlined literals
+let (sql, params) = Post::table()
+    .select(Post::all())
+    .filter(Post::title().eq("hello".to_string()))
+    .to_surrealql_with_params(); // ("… WHERE title = $p0", { p0: "hello" })
+
+// Subqueries + IN — a Select is usable as an expression
+let recent = Post::table().project(vec![col("id")]).value().filter(Raw("published".into()));
+let sql = Comment::table()
+    .select(Comment::all())
+    .filter(ident("post").in_expr(recent))
+    .to_surrealql();
+
+// SELECT modifiers: VALUE / OMIT / SPLIT / WITH INDEX / TIMEOUT / EXPLAIN
+let sql = Post::table().select(Post::all()).omit("body").timeout("5s").to_surrealql();
+
+// Control flow as expressions
+let label = IfExpr::new(Raw("votes > 100".into()), Raw("'hot'".into())).else_(Raw("'normal'".into()));
+let seed = For::new("n", Raw("[1, 2, 3]".into())).push("CREATE counter SET v = $n");
+
+// Schema DDL beyond tables/fields/indexes
+let ev = DefineEvent::new("on_publish", "post")
+    .when("$event = 'UPDATE'").then("{ CREATE log SET at = time::now() }").to_surrealql();
+let f = DefineFunction::new("greet").arg("name", "string").returns("string")
+    .body("RETURN 'hi ' + $name;").to_surrealql();
+```
+
+Edge records can derive their `SurrealEdge` impl: `#[derive(SurrealRecord, SurrealEdge)]`.
+
 ## Crates
 
 | Crate | Description |
 | ------- | ------------- |
 | [`somnia`](https://github.com/vbasky/somnia/tree/main/crates/somnia) | Umbrella crate: client, migrator, re-exports. Start here. |
 | [`somnia-core`](https://github.com/vbasky/somnia/tree/main/crates/somnia-core) | Query builder, expression tree, `SurrealRecord`/`SurrealSchema` traits. |
-| [`somnia-derive`](https://github.com/vbasky/somnia/tree/main/crates/somnia-derive) | `#[derive(SurrealRecord)]` proc-macro. |
+| [`somnia-derive`](https://github.com/vbasky/somnia/tree/main/crates/somnia-derive) | `#[derive(SurrealRecord)]` / `#[derive(SurrealEdge)]` proc-macros. |
 | [`somnia-cli`](https://github.com/vbasky/somnia/tree/main/crates/somnia-cli) | Diesel-cli-style migration runner (the `somnia` binary). |
 
 ## CLI

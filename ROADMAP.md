@@ -60,7 +60,7 @@ literals for string/int/float/bool/`datetime`(`d'…'`)/`uuid`(`u'…'`)/`durati
   `Duration`. (0.5.2) Remaining nuance: `bytes` and array/object record-id key
   types still map structurally but lack dedicated literal support.
 
-## P2 — completeness — ✅ complete
+## P2 — completeness — feature items ✅ (1.0 cleanup pending)
 
 P2 closes the gap between "everything you need for typical CRUD + graph reads"
 and "everything SurrealDB's query surface can express." Each item below turns a
@@ -70,7 +70,7 @@ frequent drop to `Raw` into a typed node.
   `BEGIN TRANSACTION; … ; COMMIT TRANSACTION;` (or `CANCEL TRANSACTION` via
   `.cancel()`). Unlike the `;`-concatenated `Batch`, the block is atomic —
   SurrealDB rolls every statement back if any errors. Verified against the live
-  engine. **(unreleased)** Still open as a path to typed control flow: a
+  engine. **(0.6.0)** Still open as a path to typed control flow: a
   closure/block body and `RETURN`-inside-transaction surfaces.
 
 - [x] **Parameters / `LET`.** Today somnia inlines all values as escaped
@@ -81,14 +81,14 @@ frequent drop to `Raw` into a typed node.
   `to_surrealql_with_params() -> (String, BTreeMap<String, Value>)`. The
   existing inlining path stays the default; opt-in binding is additive.
   SurrealDB's `LET $var = …` also needs a builder for session-scoped variables.
-  **(unreleased)**
+  **(0.6.0)**
 
 - [x] **`SELECT` extras.** Subqueries (`Select<T>` is a `DynExpr`, rendered
   parenthesized — usable in `WHERE x IN (<subquery>)`, as a scalar operand, and as
   `FROM (<subquery>)` via `from_subquery`), `IN`/`NOT IN` operators,
   `VALUE`-mode projections, `SPLIT`, `OMIT`, `WITH INDEX`/`WITH NOINDEX` hints,
   `TIMEOUT` / `EXPLAIN`[` FULL`] modifiers, and `RETURN <projection>` on `INSERT`
-  / `RELATE`. **(unreleased)** `PARALLEL` is intentionally omitted — SurrealDB 3.1
+  / `RELATE`. **(0.6.0)** `PARALLEL` is intentionally omitted — SurrealDB 3.1
   rejects it as a `SELECT` clause (parse error).
 
 - [x] **More schema DDL.** Standalone builders `DefineEvent`, `DefineFunction`,
@@ -96,18 +96,18 @@ frequent drop to `Raw` into a typed node.
   field attributes `#[field(assert = "…")]`, `#[field(readonly)]`,
   `#[field(permissions = "…")]` that render into the derived `DEFINE FIELD`.
   Validated against the live engine (ASSERT rejects invalid writes, the function
-  is callable, the param resolves). **(unreleased)**
+  is callable, the param resolves). **(0.6.0)**
 
 - [x] **Control flow.** `IfExpr` is a `DynExpr` rendering
   `IF … THEN … ELSE IF … ELSE … END` (usable in `SET`/projection/`RETURN`/`WHERE`),
   and `For` builds `FOR $item IN <array> { <body> }`. Both validated against the
-  live engine. **(unreleased)**
+  live engine. **(0.6.0)**
 
 - [x] **Edge derive.** `#[derive(SurrealEdge)]` generates the `impl SurrealEdge`
   (edge name from `#[table(...)]`), so it no longer needs to be hand-written —
   derive it alongside `SurrealRecord`. The `#[field(flexible)]` drive-by is
   covered: the derive renders `DEFINE FIELD … FLEXIBLE TYPE …` (regression test
-  added). **(unreleased)**
+  added). **(0.6.0)**
 
 - [ ] **1.0 cleanup.** Before 1.0: remove the unused `_field: &str` parameter
   from `Table::count()` (vestigial API, always ignored), audit the builder
