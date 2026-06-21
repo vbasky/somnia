@@ -482,6 +482,111 @@ mod tests {
         );
     }
 
+    // ─── SELECT extras (VALUE / OMIT / SPLIT / WITH / TIMEOUT / PARALLEL / EXPLAIN) ─
+
+    #[test]
+    fn select_value_mode() {
+        let sql = SystemSetting::table()
+            .project(vec![col("key")])
+            .value()
+            .to_surrealql();
+        assert_eq!(sql, "SELECT VALUE key FROM system_settings");
+    }
+
+    #[test]
+    fn select_omit() {
+        let sql = SystemSetting::table()
+            .select(SystemSetting::all())
+            .omit("value")
+            .to_surrealql();
+        assert_eq!(sql, "SELECT * OMIT value FROM system_settings");
+    }
+
+    #[test]
+    fn select_split() {
+        let sql = SystemSetting::table()
+            .project(vec![col("key")])
+            .split("tags")
+            .to_surrealql();
+        assert_eq!(sql, "SELECT key FROM system_settings SPLIT tags");
+    }
+
+    #[test]
+    fn select_with_index_and_noindex() {
+        assert_eq!(
+            SystemSetting::table()
+                .select(SystemSetting::all())
+                .with_index(["idx_key", "idx_val"])
+                .to_surrealql(),
+            "SELECT * FROM system_settings WITH INDEX idx_key, idx_val"
+        );
+        assert_eq!(
+            SystemSetting::table()
+                .select(SystemSetting::all())
+                .with_no_index()
+                .filter(ident("key").eq("x".to_string()))
+                .to_surrealql(),
+            "SELECT * FROM system_settings WITH NOINDEX WHERE key = 'x'"
+        );
+    }
+
+    #[test]
+    fn select_timeout_explain() {
+        assert_eq!(
+            SystemSetting::table()
+                .select(SystemSetting::all())
+                .timeout("5s")
+                .to_surrealql(),
+            "SELECT * FROM system_settings TIMEOUT 5s"
+        );
+        assert_eq!(
+            SystemSetting::table()
+                .select(SystemSetting::all())
+                .explain()
+                .to_surrealql(),
+            "SELECT * FROM system_settings EXPLAIN"
+        );
+        assert_eq!(
+            SystemSetting::table()
+                .select(SystemSetting::all())
+                .explain_full()
+                .to_surrealql(),
+            "SELECT * FROM system_settings EXPLAIN FULL"
+        );
+    }
+
+    #[test]
+    fn select_extras_clause_ordering() {
+        // VALUE, OMIT, WITH, WHERE, SPLIT, TIMEOUT in canonical SurrealDB order.
+        let sql = SystemSetting::table()
+            .project(vec![col("key")])
+            .value()
+            .omit("value")
+            .with_no_index()
+            .filter(ident("key").eq("x".to_string()))
+            .split("tags")
+            .timeout("1s")
+            .to_surrealql();
+        assert_eq!(
+            sql,
+            "SELECT VALUE key OMIT value FROM system_settings WITH NOINDEX WHERE key = 'x' SPLIT tags TIMEOUT 1s"
+        );
+    }
+
+    #[test]
+    fn select_extras_carry_into_param_mode() {
+        let (sql, params) = SystemSetting::table()
+            .project(vec![col("key")])
+            .filter(ident("key").eq("x".to_string()))
+            .timeout("2s")
+            .to_surrealql_with_params();
+        assert_eq!(
+            sql,
+            "SELECT key FROM system_settings WHERE key = $p0 TIMEOUT 2s"
+        );
+        assert_eq!(params.get("p0").unwrap(), &serde_json::json!("x"));
+    }
+
     // ─── Transactions ─────────────────────────────────────────────────────────
 
     #[test]

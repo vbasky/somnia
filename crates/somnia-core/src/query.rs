@@ -152,11 +152,16 @@ impl<T: SurrealRecord> Default for Table<T> {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /// A `SELECT` statement builder: projections, `WHERE`, `ORDER BY`, `LIMIT`,
-/// `START`, `FETCH`, `GROUP BY`/`GROUP ALL`, and `count()`.
+/// `START`, `FETCH`, `GROUP BY`/`GROUP ALL`, `count()`, and the modifiers
+/// `VALUE`/`OMIT`/`SPLIT`/`WITH`/`TIMEOUT`/`EXPLAIN`.
 pub struct Select<T: SurrealRecord> {
     _marker: std::marker::PhantomData<T>,
     projections: Vec<Projection>,
+    value: bool,
+    omit: Vec<String>,
+    with: Option<String>,
     filter: Option<Box<dyn DynExpr>>,
+    split: Vec<String>,
     order: Vec<(String, Order)>,
     limit: Option<u32>,
     start: u32,
@@ -165,6 +170,8 @@ pub struct Select<T: SurrealRecord> {
     group_all: bool,
     count: bool,
     count_alias: Option<&'static str>,
+    timeout: Option<String>,
+    explain: Option<bool>,
 }
 
 impl<T: SurrealRecord> Select<T> {
@@ -172,7 +179,11 @@ impl<T: SurrealRecord> Select<T> {
         Select {
             _marker: std::marker::PhantomData,
             projections: Vec::new(),
+            value: false,
+            omit: Vec::new(),
+            with: None,
             filter: None,
+            split: Vec::new(),
             order: Vec::new(),
             limit: None,
             start: 0,
@@ -181,6 +192,8 @@ impl<T: SurrealRecord> Select<T> {
             group_all: false,
             count: false,
             count_alias: None,
+            timeout: None,
+            explain: None,
         }
     }
 
@@ -227,6 +240,57 @@ impl<T: SurrealRecord> Select<T> {
     pub fn count_as(mut self, alias: &'static str) -> Self {
         self.count = true;
         self.count_alias = Some(alias);
+        self
+    }
+
+    /// `SELECT VALUE …` — return bare values instead of field-wrapping objects.
+    /// Pair with a single projection (e.g. `project(vec![col("name")]).value()`).
+    pub fn value(mut self) -> Self {
+        self.value = true;
+        self
+    }
+    /// `OMIT <field>` — exclude a field from a `SELECT *`.
+    pub fn omit(mut self, field: &str) -> Self {
+        self.omit.push(field.to_string());
+        self
+    }
+    /// `SPLIT <field>` — fan one row out into multiple rows by an array field.
+    pub fn split(mut self, field: &str) -> Self {
+        self.split.push(field.to_string());
+        self
+    }
+    /// `WITH INDEX <a, b>` — force the planner to use the named index(es).
+    pub fn with_index<I, S>(mut self, indexes: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let list = indexes
+            .into_iter()
+            .map(|s| s.as_ref().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.with = Some(format!("WITH INDEX {list}"));
+        self
+    }
+    /// `WITH NOINDEX` — force a table scan (ignore indexes).
+    pub fn with_no_index(mut self) -> Self {
+        self.with = Some("WITH NOINDEX".to_string());
+        self
+    }
+    /// `TIMEOUT <duration>` — abort the query after the given duration (e.g. `"5s"`).
+    pub fn timeout(mut self, duration: impl Into<String>) -> Self {
+        self.timeout = Some(duration.into());
+        self
+    }
+    /// `EXPLAIN` — return the query plan instead of results.
+    pub fn explain(mut self) -> Self {
+        self.explain = Some(false);
+        self
+    }
+    /// `EXPLAIN FULL` — return the query plan with execution detail.
+    pub fn explain_full(mut self) -> Self {
+        self.explain = Some(true);
         self
     }
 
@@ -286,29 +350,45 @@ impl<T: SurrealRecord> Select<T> {
         }
     }
 
-    pub fn to_surrealql(&self) -> String {
-        let mut q = String::from("SELECT ");
-        self.render_select_list(&mut q);
+    /// Shared renderer for both inline and `$param` modes. When `params` is
+    /// `Some`, literals render as `$pN` placeholders collected into the map;
+    /// when `None`, they render inline.
+    fn render(&self, q: &mut String, mut params: Option<&mut BTreeMap<String, serde_json::Value>>) {
+        q.push_str("SELECT ");
+        if self.value {
+            q.push_str("VALUE ");
+        }
+        match &mut params {
+            Some(p) => self.render_select_list_params(q, p),
+            None => self.render_select_list(q),
+        }
+        if !self.omit.is_empty() {
+            q.push_str(" OMIT ");
+            q.push_str(&self.omit.join(", "));
+        }
         q.push_str(" FROM ");
         q.push_str(T::table_name());
+        if let Some(w) = &self.with {
+            q.push(' ');
+            q.push_str(w);
+        }
         if let Some(ref f) = self.filter {
             q.push_str(" WHERE ");
-            f.render_dyn(&mut q);
+            match &mut params {
+                Some(p) => f.render_dyn_params(q, p),
+                None => f.render_dyn(q),
+            }
+        }
+        for (i, s) in self.split.iter().enumerate() {
+            q.push_str(if i == 0 { " SPLIT " } else { ", " });
+            q.push_str(s);
         }
         for (i, (col, dir)) in self.order.iter().enumerate() {
-            if i == 0 {
-                q.push_str(" ORDER BY ");
-            } else {
-                q.push_str(", ");
-            }
+            q.push_str(if i == 0 { " ORDER BY " } else { ", " });
             q.push_str(&format!("{col} {dir}"));
         }
         for (i, g) in self.group_by.iter().enumerate() {
-            if i == 0 {
-                q.push_str(" GROUP BY ");
-            } else {
-                q.push_str(", ");
-            }
+            q.push_str(if i == 0 { " GROUP BY " } else { ", " });
             q.push_str(g);
         }
         if self.group_all {
@@ -323,6 +403,20 @@ impl<T: SurrealRecord> Select<T> {
         for f in &self.fetch {
             q.push_str(&format!(" FETCH {f}"));
         }
+        if let Some(t) = &self.timeout {
+            q.push_str(" TIMEOUT ");
+            q.push_str(t);
+        }
+        match self.explain {
+            Some(true) => q.push_str(" EXPLAIN FULL"),
+            Some(false) => q.push_str(" EXPLAIN"),
+            None => {}
+        }
+    }
+
+    pub fn to_surrealql(&self) -> String {
+        let mut q = String::new();
+        self.render(&mut q, None);
         q
     }
 
@@ -332,42 +426,8 @@ impl<T: SurrealRecord> Select<T> {
     /// wrappers use their declared name.
     pub fn to_surrealql_with_params(&self) -> (String, BTreeMap<String, serde_json::Value>) {
         let mut params = BTreeMap::new();
-        let mut q = String::from("SELECT ");
-        self.render_select_list_params(&mut q, &mut params);
-        q.push_str(" FROM ");
-        q.push_str(T::table_name());
-        if let Some(ref f) = self.filter {
-            q.push_str(" WHERE ");
-            f.render_dyn_params(&mut q, &mut params);
-        }
-        for (i, (col, dir)) in self.order.iter().enumerate() {
-            if i == 0 {
-                q.push_str(" ORDER BY ");
-            } else {
-                q.push_str(", ");
-            }
-            q.push_str(&format!("{col} {dir}"));
-        }
-        for (i, g) in self.group_by.iter().enumerate() {
-            if i == 0 {
-                q.push_str(" GROUP BY ");
-            } else {
-                q.push_str(", ");
-            }
-            q.push_str(g);
-        }
-        if self.group_all {
-            q.push_str(" GROUP ALL");
-        }
-        if self.start > 0 {
-            q.push_str(&format!(" START {}", self.start));
-        }
-        if let Some(n) = self.limit {
-            q.push_str(&format!(" LIMIT {n}"));
-        }
-        for f in &self.fetch {
-            q.push_str(&format!(" FETCH {f}"));
-        }
+        let mut q = String::new();
+        self.render(&mut q, Some(&mut params));
         (q, params)
     }
 }

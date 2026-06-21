@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use somnia_core::{Column, ColumnMeta, ColumnSet, Table, Thing};
+    use somnia_core::{col, Column, ColumnMeta, ColumnSet, Table, Thing};
     use surrealdb::engine::any::connect;
     use surrealdb::Surreal;
 
@@ -121,6 +121,46 @@ mod tests {
         let rows: Vec<serde_json::Value> = res.take(0).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["name"], "video.mp4");
+    }
+
+    #[tokio::test]
+    async fn select_extras_run_on_live_surreal() {
+        let db = setup().await;
+        db.query("INSERT INTO asset { name: 'a.mp4', file_size: 100, content_type: 'video/mp4' };")
+            .await
+            .unwrap();
+        db.query("INSERT INTO asset { name: 'b.mp4', file_size: 200, content_type: 'video/mp4' };")
+            .await
+            .unwrap();
+
+        // VALUE mode returns bare scalars, not field-wrapping objects.
+        let value_sql = Asset::table()
+            .project(vec![col("name")])
+            .value()
+            .to_surrealql();
+        let mut res = db.query(&value_sql).await.unwrap().check().unwrap();
+        let names: Vec<String> = res.take(0).unwrap();
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"a.mp4".to_string()));
+
+        // OMIT + TIMEOUT both parse and run; the omitted field is gone.
+        let omit_sql = Asset::table()
+            .select(Asset::all())
+            .omit("file_size")
+            .timeout("5s")
+            .to_surrealql();
+        let mut res = db.query(&omit_sql).await.unwrap().check().unwrap();
+        let rows: Vec<serde_json::Value> = res.take(0).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(
+            rows[0].get("file_size").is_none(),
+            "file_size should be omitted"
+        );
+        assert!(rows[0].get("name").is_some());
+
+        // EXPLAIN returns a plan rather than rows — it just needs to parse + run.
+        let explain_sql = Asset::table().select(Asset::all()).explain().to_surrealql();
+        db.query(&explain_sql).await.unwrap().check().unwrap();
     }
 
     #[tokio::test]
