@@ -92,7 +92,23 @@ jobs:
               continue
             fi
             echo "==> cargo publish ${c}@${version}"
-            cargo publish -p "${c}"
+            # Retry: a dependent crate (e.g. somnia-cli -> somnia) can fail to
+            # resolve its just-published dependency if the crates.io index hasn't
+            # propagated yet ("failed to select a version for the requirement").
+            # That's transient — back off and retry before giving up.
+            published=false
+            for attempt in 1 2 3 4 5; do
+              if cargo publish -p "${c}"; then
+                published=true
+                break
+              fi
+              echo "==> publish of ${c}@${version} failed (attempt ${attempt}); waiting 30s for index propagation…"
+              sleep 30
+            done
+            if [ "$published" != "true" ]; then
+              echo "::error::Failed to publish ${c}@${version} after 5 attempts"
+              exit 1
+            fi
           done
 
   formula:

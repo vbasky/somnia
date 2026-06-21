@@ -236,7 +236,7 @@ pub fn derive_surreal_record(input: TokenStream) -> TokenStream {
     gen.into()
 }
 
-/// Derive [`SurrealEdge`](::somnia_core::SurrealEdge) for an edge record, so the
+/// Derive `SurrealEdge` for an edge record, so the
 /// `impl SurrealEdge { fn edge_name() … }` no longer needs to be hand-written.
 ///
 /// The edge name comes from `#[table("name")]` (same as `SurrealRecord`), or the

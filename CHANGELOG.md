@@ -10,6 +10,20 @@ notes, so keep this format intact.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Docs** — removed a broken intra-doc link in the `SurrealEdge` derive doc
+  (the proc-macro crate can't resolve `::somnia_core::…` paths), which failed
+  `cargo doc -D warnings` in CI.
+
+### Changed
+
+- **Release pipeline** — `scripts/release.sh` now runs `cargo doc -D warnings`
+  before tagging (catches broken doc links pre-release), and the publish workflow
+  retries each `cargo publish` up to 5× with a 30s backoff to ride out crates.io
+  index-propagation lag (which had left `somnia-cli` unpublished in 0.6.0 until a
+  manual re-run).
+
 ## [0.6.0] - 2026-06-21
 
 Completes the **P2** ("completeness") roadmap tier — transactions, parameter

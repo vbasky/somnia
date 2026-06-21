@@ -73,6 +73,9 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo build --workspace   # final manifest + compile validation
+# Catch broken intra-doc links etc. before tagging — CI fails the build on these,
+# so a release must not tag what `cargo doc -D warnings` would reject.
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 
 # ── commit, tag, push ──────────────────────────────────────────────────────
 git add Cargo.toml Cargo.lock crates/*/Cargo.toml CHANGELOG.md README.md crates/somnia/README.md
