@@ -164,6 +164,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn subquery_in_where_runs_on_live_surreal() {
+        use somnia_core::ident;
+        let db = setup().await;
+        db.query("INSERT INTO asset { name: 'big.mp4', file_size: 500 };")
+            .await
+            .unwrap();
+        db.query("INSERT INTO asset { name: 'small.mp4', file_size: 10 };")
+            .await
+            .unwrap();
+
+        // WHERE name IN (SELECT VALUE name FROM asset WHERE file_size > 100)
+        let sub = Asset::table()
+            .project(vec![col("name")])
+            .value()
+            .filter(Asset::file_size().gt(Some(100)));
+        let sql = Asset::table()
+            .select(Asset::all())
+            .filter(ident("name").in_expr(sub))
+            .to_surrealql();
+
+        let mut res = db.query(&sql).await.unwrap().check().unwrap();
+        let rows: Vec<serde_json::Value> = res.take(0).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["name"], "big.mp4");
+
+        // FROM (<subquery>) also parses and runs.
+        let inner = Asset::table()
+            .select(Asset::all())
+            .filter(Asset::file_size().gt(Some(100)));
+        let from_sub = Asset::table()
+            .select(Asset::all())
+            .from_subquery(inner)
+            .to_surrealql();
+        db.query(&from_sub).await.unwrap().check().unwrap();
+    }
+
+    #[tokio::test]
     async fn test_filter_and_order() {
         let db = setup().await;
         db.query("INSERT INTO asset { name: 'c.mp3', file_size: 100 };")

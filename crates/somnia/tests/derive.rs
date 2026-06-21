@@ -120,6 +120,27 @@ mod tests {
     }
 
     #[test]
+    fn relate_return_projection() {
+        use somnia::{RelateEdge, Returning};
+        let alice: Thing<User> = Thing::new("alice");
+        let bob: Thing<User> = Thing::new("bob");
+        assert_eq!(
+            RelateEdge::<Follows>::from(&alice)
+                .to(&bob)
+                .returning(Returning::After)
+                .build(),
+            "RELATE user:alice -> follows -> user:bob RETURN AFTER"
+        );
+        assert_eq!(
+            RelateEdge::<Follows>::from(&alice)
+                .to(&bob)
+                .return_field("id")
+                .build(),
+            "RELATE user:alice -> follows -> user:bob RETURN id"
+        );
+    }
+
+    #[test]
     fn recursive_graph_path_executes_on_live_surreal() {
         use somnia::{DynExpr, Path};
         let rt = tokio::runtime::Runtime::new().unwrap();

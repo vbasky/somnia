@@ -83,14 +83,13 @@ frequent drop to `Raw` into a typed node.
   SurrealDB's `LET $var = …` also needs a builder for session-scoped variables.
   **(unreleased)**
 
-- [ ] **`SELECT` extras.** Subqueries (a `Select<T>` used as a `DynExpr` inside
-  `WHERE x IN (<subquery>)` / scalar subqueries / `FROM (<subquery>)`),
-  `VALUE`-mode projections (drops field-wrapping objects, returns bare values),
-  `SPLIT` (split a single row into multiple output rows by an array field),
-  `OMIT` (exclude specific fields from `*`), `WITH` index hints (force/ignore a
-  specific index), `PARALLEL` (parallel graph fetches), `TIMEOUT` / `EXPLAIN`
-  statement modifiers, and `RETURN <projection>` on `INSERT` / `RELATE` (today
-  only `RETURN NONE|BEFORE|AFTER|DIFF` is modeled).
+- [x] **`SELECT` extras.** Subqueries (`Select<T>` is a `DynExpr`, rendered
+  parenthesized — usable in `WHERE x IN (<subquery>)`, as a scalar operand, and as
+  `FROM (<subquery>)` via `from_subquery`), `IN`/`NOT IN` operators,
+  `VALUE`-mode projections, `SPLIT`, `OMIT`, `WITH INDEX`/`WITH NOINDEX` hints,
+  `TIMEOUT` / `EXPLAIN`[` FULL`] modifiers, and `RETURN <projection>` on `INSERT`
+  / `RELATE`. **(unreleased)** `PARALLEL` is intentionally omitted — SurrealDB 3.1
+  rejects it as a `SELECT` clause (parse error).
 
 - [ ] **More schema DDL.** `DEFINE EVENT` (table-level `WHEN … THEN …` triggers
   that fire on `CREATE`/`UPDATE`/`DELETE`), `DEFINE FUNCTION` (user-defined

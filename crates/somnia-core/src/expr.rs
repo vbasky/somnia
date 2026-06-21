@@ -496,6 +496,20 @@ impl Ident {
             right: Box::new(rhs),
         }
     }
+    /// `field IN <expr>` — e.g. an array literal or a parenthesized subquery.
+    pub fn in_expr(&self, rhs: impl DynExpr + 'static) -> InExpr {
+        InExpr {
+            left: self.dyn_box(),
+            right: Box::new(rhs),
+        }
+    }
+    /// `field NOT IN <expr>`.
+    pub fn not_in_expr(&self, rhs: impl DynExpr + 'static) -> NotInExpr {
+        NotInExpr {
+            left: self.dyn_box(),
+            right: Box::new(rhs),
+        }
+    }
     /// `field IS NONE`.
     pub fn is_none(&self) -> Raw {
         Raw(format!("{} IS NONE", self.0))
@@ -1008,6 +1022,8 @@ binop!(GteExpr, ">=");
 binop!(LteExpr, "<=");
 binop!(AndExpr, "AND");
 binop!(OrExpr, "OR");
+binop!(InExpr, "IN");
+binop!(NotInExpr, "NOT IN");
 
 #[derive(Debug)]
 pub struct NotExpr {
@@ -1121,6 +1137,20 @@ impl<T: SurrealRecord, V: SurrealQL> Column<T, V> {
             right: Box::new(rhs),
         }
     }
+    /// `column IN <expr>` — e.g. an array literal or a parenthesized subquery.
+    pub fn in_expr(&self, rhs: impl DynExpr + 'static) -> InExpr {
+        InExpr {
+            left: self.dyn_box(),
+            right: Box::new(rhs),
+        }
+    }
+    /// `column NOT IN <expr>`.
+    pub fn not_in_expr(&self, rhs: impl DynExpr + 'static) -> NotInExpr {
+        NotInExpr {
+            left: self.dyn_box(),
+            right: Box::new(rhs),
+        }
+    }
     /// `column IS NONE`.
     pub fn is_none(&self) -> Raw {
         Raw(format!("{} IS NONE", self.name))
@@ -1158,6 +1188,8 @@ combinators!(
     AndExpr,
     OrExpr,
     ContainsExpr,
+    InExpr,
+    NotInExpr,
     NotExpr,
     Raw
 );

@@ -119,6 +119,7 @@ impl<T: SurrealRecord> Table<T> {
         Insert {
             data: Vec::new(),
             return_fields: vec![],
+            returning: Returning::None,
         }
     }
     /// Begin a `CREATE <table> …`.
@@ -172,6 +173,7 @@ pub struct Select<T: SurrealRecord> {
     count_alias: Option<&'static str>,
     timeout: Option<String>,
     explain: Option<bool>,
+    from_sub: Option<Box<Select<T>>>,
 }
 
 impl<T: SurrealRecord> Select<T> {
@@ -194,6 +196,7 @@ impl<T: SurrealRecord> Select<T> {
             count_alias: None,
             timeout: None,
             explain: None,
+            from_sub: None,
         }
     }
 
@@ -283,6 +286,14 @@ impl<T: SurrealRecord> Select<T> {
         self.timeout = Some(duration.into());
         self
     }
+    /// `SELECT … FROM (<subquery>)` — read from a subquery instead of the base
+    /// table. The subquery (a `Select<T>` of the same record type) renders
+    /// parenthesized in place of the table name.
+    pub fn from_subquery(mut self, sub: Select<T>) -> Self {
+        self.from_sub = Some(Box::new(sub));
+        self
+    }
+
     /// `EXPLAIN` — return the query plan instead of results.
     pub fn explain(mut self) -> Self {
         self.explain = Some(false);
@@ -350,33 +361,48 @@ impl<T: SurrealRecord> Select<T> {
         }
     }
 
-    /// Shared renderer for both inline and `$param` modes. When `params` is
-    /// `Some`, literals render as `$pN` placeholders collected into the map;
-    /// when `None`, they render inline.
-    fn render(&self, q: &mut String, mut params: Option<&mut BTreeMap<String, serde_json::Value>>) {
+    /// Shared renderer for both inline and `$param` modes. When `param_mode` is
+    /// set, literals render as `$pN` placeholders collected into `params`;
+    /// otherwise they render inline (and `params` is ignored). A single map is
+    /// threaded through so a nested subquery's params merge into the parent's.
+    fn render(
+        &self,
+        q: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+        param_mode: bool,
+    ) {
         q.push_str("SELECT ");
         if self.value {
             q.push_str("VALUE ");
         }
-        match &mut params {
-            Some(p) => self.render_select_list_params(q, p),
-            None => self.render_select_list(q),
+        if param_mode {
+            self.render_select_list_params(q, params);
+        } else {
+            self.render_select_list(q);
         }
         if !self.omit.is_empty() {
             q.push_str(" OMIT ");
             q.push_str(&self.omit.join(", "));
         }
         q.push_str(" FROM ");
-        q.push_str(T::table_name());
+        match &self.from_sub {
+            Some(sub) => {
+                q.push('(');
+                sub.render(q, params, param_mode);
+                q.push(')');
+            }
+            None => q.push_str(T::table_name()),
+        }
         if let Some(w) = &self.with {
             q.push(' ');
             q.push_str(w);
         }
         if let Some(ref f) = self.filter {
             q.push_str(" WHERE ");
-            match &mut params {
-                Some(p) => f.render_dyn_params(q, p),
-                None => f.render_dyn(q),
+            if param_mode {
+                f.render_dyn_params(q, params);
+            } else {
+                f.render_dyn(q);
             }
         }
         for (i, s) in self.split.iter().enumerate() {
@@ -416,7 +442,8 @@ impl<T: SurrealRecord> Select<T> {
 
     pub fn to_surrealql(&self) -> String {
         let mut q = String::new();
-        self.render(&mut q, None);
+        let mut sink = BTreeMap::new();
+        self.render(&mut q, &mut sink, false);
         q
     }
 
@@ -427,8 +454,37 @@ impl<T: SurrealRecord> Select<T> {
     pub fn to_surrealql_with_params(&self) -> (String, BTreeMap<String, serde_json::Value>) {
         let mut params = BTreeMap::new();
         let mut q = String::new();
-        self.render(&mut q, Some(&mut params));
+        self.render(&mut q, &mut params, true);
         (q, params)
+    }
+}
+
+impl<T: SurrealRecord> std::fmt::Debug for Select<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Select")
+            .field("sql", &self.to_surrealql())
+            .finish()
+    }
+}
+
+/// A `Select` is usable as an expression — rendered parenthesized — so it can be
+/// embedded as a subquery: a scalar/`IN` operand in a `WHERE`, a projection, or a
+/// `SET`/`FROM` value. Params from the subquery merge into the parent's map.
+impl<T: SurrealRecord> DynExpr for Select<T> {
+    fn render_dyn(&self, buf: &mut String) {
+        let mut sink = BTreeMap::new();
+        buf.push('(');
+        self.render(buf, &mut sink, false);
+        buf.push(')');
+    }
+    fn render_dyn_params(
+        &self,
+        buf: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        buf.push('(');
+        self.render(buf, params, true);
+        buf.push(')');
     }
 }
 
@@ -447,6 +503,7 @@ impl<T: SurrealRecord> std::fmt::Display for Select<T> {
 pub struct Insert<T: SurrealRecord> {
     data: Vec<T>,
     return_fields: Vec<&'static str>,
+    returning: Returning,
 }
 
 impl<T: SurrealRecord> Insert<T> {
@@ -454,17 +511,27 @@ impl<T: SurrealRecord> Insert<T> {
         self.data.push(record);
         self
     }
+    /// Add a field to the `RETURN <projection>` list. Multiple calls accumulate
+    /// (`RETURN id, name`). Takes precedence over [`returning`](Self::returning).
     pub fn return_field(mut self, field: &'static str) -> Self {
         self.return_fields.push(field);
+        self
+    }
+    /// Set a `RETURN NONE|BEFORE|AFTER|DIFF` clause (used when no explicit
+    /// [`return_field`](Self::return_field) projection is given).
+    pub fn returning(mut self, r: Returning) -> Self {
+        self.returning = r;
         self
     }
     pub fn data(&self) -> &[T] {
         &self.data
     }
 
-    /// Render `INSERT INTO <table> <object|array> [RETURN AFTER]`, serializing the
+    /// Render `INSERT INTO <table> <object|array> [RETURN …]`, serializing the
     /// queued record(s) inline as SurrealQL object literals (JSON is a valid
     /// subset). A single record renders as `{ … }`, multiple as `[ {…}, {…} ]`.
+    /// A `RETURN` projection (from [`return_field`](Self::return_field)) renders
+    /// the field list; otherwise the [`returning`](Self::returning) variant.
     pub fn to_surrealql(&self) -> String
     where
         T: serde::Serialize,
@@ -474,12 +541,14 @@ impl<T: SurrealRecord> Insert<T> {
             [one] => serde_json::to_string(one).unwrap_or_else(|_| "{}".to_string()),
             many => serde_json::to_string(many).unwrap_or_else(|_| "[]".to_string()),
         };
-        let returning = if self.return_fields.is_empty() {
-            ""
+        let mut q = format!("INSERT INTO {} {}", T::table_name(), body);
+        if !self.return_fields.is_empty() {
+            q.push_str(" RETURN ");
+            q.push_str(&self.return_fields.join(", "));
         } else {
-            " RETURN AFTER"
-        };
-        format!("INSERT INTO {} {}{}", T::table_name(), body, returning)
+            self.returning.render(&mut q);
+        }
+        q
     }
 }
 
@@ -1116,6 +1185,8 @@ pub struct RelateEdge<E: SurrealEdge> {
     from_label: String,
     to_label: String,
     content_json: Option<serde_json::Value>,
+    return_fields: Vec<&'static str>,
+    returning: Returning,
 }
 
 impl<E: SurrealEdge> RelateEdge<E> {
@@ -1125,6 +1196,8 @@ impl<E: SurrealEdge> RelateEdge<E> {
             from_label: record_id_string(from),
             to_label: String::new(),
             content_json: None,
+            return_fields: Vec::new(),
+            returning: Returning::None,
         }
     }
 
@@ -1136,6 +1209,18 @@ impl<E: SurrealEdge> RelateEdge<E> {
     /// Attach content to the edge record.
     pub fn content(mut self, edge: &impl serde::Serialize) -> Self {
         self.content_json = serde_json::to_value(edge).ok();
+        self
+    }
+
+    /// Add a field to the `RETURN <projection>` list (e.g. `RETURN id`). Multiple
+    /// calls accumulate; takes precedence over [`returning`](Self::returning).
+    pub fn return_field(mut self, field: &'static str) -> Self {
+        self.return_fields.push(field);
+        self
+    }
+    /// Set a `RETURN NONE|BEFORE|AFTER|DIFF` clause on the edge creation.
+    pub fn returning(mut self, r: Returning) -> Self {
+        self.returning = r;
         self
     }
 
@@ -1151,6 +1236,12 @@ impl<E: SurrealEdge> RelateEdge<E> {
                 " CONTENT {}",
                 serde_json::to_string(c).unwrap_or_default()
             ));
+        }
+        if !self.return_fields.is_empty() {
+            q.push_str(" RETURN ");
+            q.push_str(&self.return_fields.join(", "));
+        } else {
+            self.returning.render(&mut q);
         }
         q
     }

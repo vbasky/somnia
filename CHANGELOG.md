@@ -12,6 +12,15 @@ notes, so keep this format intact.
 
 ### Added
 
+- **`SELECT` extras (P2)** — `VALUE` mode, `OMIT`, `SPLIT`, `WITH INDEX`/`WITH
+  NOINDEX` hints, `TIMEOUT`, and `EXPLAIN`[` FULL`] modifiers on `Select`;
+  subqueries (`Select<T>` now implements `DynExpr`, rendering parenthesized — use
+  it in a `WHERE`, as a scalar operand, or as `FROM (<subquery>)` via
+  `from_subquery`); `in_expr()` / `not_in_expr()` (`IN` / `NOT IN`) on columns and
+  idents; and `RETURN <projection>` on `INSERT` (now renders the actual field list
+  plus a `returning()` enum setter) and `RelateEdge` (`return_field` / `returning`).
+  Subquery parameters merge into the parent's `$param` map. `PARALLEL` is omitted —
+  SurrealDB 3.1 rejects it on `SELECT`.
 - **Transactions (P2)** — a `Transaction` builder wraps pushed statements in
   `BEGIN TRANSACTION; … ; COMMIT TRANSACTION;` (or `CANCEL TRANSACTION` via
   `.cancel()`), giving atomic, roll-back-on-error semantics that the

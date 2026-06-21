@@ -587,6 +587,103 @@ mod tests {
         assert_eq!(params.get("p0").unwrap(), &serde_json::json!("x"));
     }
 
+    // ─── Subqueries / IN / RETURN projection ──────────────────────────────────
+
+    #[test]
+    fn in_array_literal() {
+        let sql = SystemSetting::table()
+            .project(vec![col("key")])
+            .filter(ident("key").in_expr(somnia_core::expr::Literal(vec![
+                "a".to_string(),
+                "b".to_string(),
+            ])))
+            .to_surrealql();
+        assert_eq!(
+            sql,
+            "SELECT key FROM system_settings WHERE key IN ['a', 'b']"
+        );
+    }
+
+    #[test]
+    fn subquery_in_where() {
+        // WHERE key IN (SELECT VALUE key FROM system_settings WHERE value = NONE)
+        let sub = SystemSetting::table()
+            .project(vec![col("key")])
+            .value()
+            .filter(ident("value").is_none());
+        let sql = SystemSetting::table()
+            .select(SystemSetting::all())
+            .filter(ident("key").in_expr(sub))
+            .to_surrealql();
+        assert_eq!(
+            sql,
+            "SELECT * FROM system_settings WHERE key IN (SELECT VALUE key FROM system_settings WHERE value IS NONE)"
+        );
+    }
+
+    #[test]
+    fn select_from_subquery() {
+        let inner = SystemSetting::table()
+            .select(SystemSetting::all())
+            .filter(ident("key").eq("x".to_string()));
+        let sql = SystemSetting::table()
+            .select(SystemSetting::all())
+            .from_subquery(inner)
+            .to_surrealql();
+        assert_eq!(
+            sql,
+            "SELECT * FROM (SELECT * FROM system_settings WHERE key = 'x')"
+        );
+    }
+
+    #[test]
+    fn subquery_params_merge_into_parent() {
+        let sub = SystemSetting::table()
+            .project(vec![col("key")])
+            .value()
+            .filter(ident("key").eq("inner".to_string()));
+        let (sql, params) = SystemSetting::table()
+            .select(SystemSetting::all())
+            .filter(ident("key").in_expr(sub))
+            .to_surrealql_with_params();
+        assert_eq!(
+            sql,
+            "SELECT * FROM system_settings WHERE key IN (SELECT VALUE key FROM system_settings WHERE key = $p0)"
+        );
+        assert_eq!(params.get("p0").unwrap(), &serde_json::json!("inner"));
+    }
+
+    #[test]
+    fn insert_return_projection() {
+        let row = SystemSetting {
+            id: Thing::new("k1"),
+            key: "theme".to_string(),
+            value: None,
+        };
+        let sql = SystemSetting::table()
+            .insert()
+            .content(row)
+            .return_field("id")
+            .return_field("key")
+            .to_surrealql();
+        assert!(sql.ends_with(" RETURN id, key"), "got: {sql}");
+    }
+
+    #[test]
+    fn insert_returning_enum() {
+        let row = SystemSetting {
+            id: Thing::new("k1"),
+            key: "theme".to_string(),
+            value: None,
+        };
+        let sql = SystemSetting::table()
+            .insert()
+            .content(row)
+            .returning(Returning::After)
+            .to_surrealql();
+        assert!(sql.ends_with(" RETURN AFTER"), "got: {sql}");
+    }
+
     // ─── Transactions ─────────────────────────────────────────────────────────
 
     #[test]
