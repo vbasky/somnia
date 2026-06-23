@@ -1,10 +1,12 @@
 # somnia roadmap
 
-somnia today is a **typed query builder + derive + schema + migrations** over the
-common slice of SurrealQL, with `Raw(...)` / `field("…", "alias")` as a
-first-class escape hatch for everything it doesn't model yet. This document
-tracks the path from that pragmatic 0.2.x toward a 1.0 that covers SurrealDB's
-feature surface — without losing the escape-hatch philosophy.
+somnia today (0.8.x) is a **typed query builder + derive + schema + migrations +
+thin client** over SurrealDB — covering CRUD, graph traversal, transactions,
+schema DDL, control flow, auth, live queries, and full-text/vector search — with
+`Raw(...)` / `field("…", "alias")` as a first-class escape hatch for everything
+it doesn't model yet. This document tracks the path from the pragmatic 0.2.x
+beginnings to the current 0.8.x and on toward a 1.0 that freezes the public
+surface — without losing the escape-hatch philosophy.
 
 Priorities are ordered by value × how often the gap forces a drop to raw
 SurrealQL. Checkboxes track status; nothing here is a commitment to a date.
@@ -20,9 +22,13 @@ transactions (`BEGIN`/`COMMIT`/`CANCEL`);
 `$param` binding (`to_surrealql_with_params()`, `Param<V>`), `LET $var`;
 comparison/logical operators, `type::record(...)` links, generic function calls;
 `DEFINE TABLE`/`DEFINE FIELD`/`DEFINE INDEX`/`REMOVE TABLE` via derive; diesel-style migrations;
-literals for string/int/float/bool/`datetime`(`d'…'`)/`uuid`(`u'…'`)/`duration`/array/object/record/`Option`.
+literals for string/int/float/bool/`datetime`(`d'…'`)/`uuid`(`u'…'`)/`duration`/array/object/record/`Option`;
+typed auth (root/namespace/database/record `SIGNIN`/`SIGNUP`/`authenticate`/`invalidate`, `Credentials`);
+live queries (`LIVE SELECT` → `LiveQueryStream<Notification<T>>`);
+full-text + vector search helpers (`Table::search`/`nearest`); closures and record `REFERENCE`s.
 
-**Not covered:** see tiers below.
+**Status:** all P0–P3 tiers below have shipped (through 0.8.0); the remaining
+work is the 1.0 stabilization pass.
 
 ---
 
@@ -115,10 +121,10 @@ frequent drop to `Raw` into a typed node.
   targets already accept any `SurrealQL` key incl. `Thing<T>`). **(0.7.0,
   breaking)** Deeper public-trait-surface stabilization continues toward 1.0.
 
-## P3 — advanced / specialized
+## P3 — advanced / specialized — ✅ shipped in 0.8.0
 
 These are high-value but each touches a subsystem (client auth, streaming,
-SurrealDB 3.x type system) that benefits from doing P2 first.
+SurrealDB 3.x type system) that benefited from doing P2 first.
 
 - [x] **Live queries.** `SomniaClient::live_select::<T>()` returns a
   `LiveQueryStream<T>` — a `futures::Stream` of `Notification<T>` carrying the
@@ -126,7 +132,7 @@ SurrealDB 3.x type system) that benefits from doing P2 first.
   (decoded through `serde_json::Value` so `Thing<T>` resolves). It wraps
   surrealdb's `select().live()` subscription; dropping the stream handle issues
   `KILL`. Verified live on `mem://` (create/update/delete notifications).
-  **(Unreleased)** Still open: filtered/record-scoped live selects and a
+  **(0.8.0)** Still open: filtered/record-scoped live selects and a
   standalone `LIVE SELECT` SurrealQL node (the client path builds it internally).
 
 - [x] **Auth.** A `Credentials` enum (`Root`/`Namespace`/`Database`/`Token`)
@@ -137,7 +143,7 @@ SurrealDB 3.x type system) that benefits from doing P2 first.
   value), `authenticate(token)` to attach a pre-issued JWT, and `invalidate()`.
   Signin/signup return the issued access token; failures surface as
   `SomniaError::Auth`. Verified against the live engine (record signup → signin →
-  invalidate, wrong-password rejection). **(Unreleased)** Still open: namespace/
+  invalidate, wrong-password rejection). **(0.8.0)** Still open: namespace/
   database user `SIGNUP` (SurrealDB only allows `SIGNUP` on record access), and
   refresh-token rotation.
 
@@ -148,7 +154,7 @@ SurrealDB 3.x type system) that benefits from doing P2 first.
   nearest-first order), backed by composable `MatchesExpr`/`KnnExpr` nodes and
   `Column::matches`. The index side was also corrected: `DefineIndex::search()`
   now emits `FULLTEXT ANALYZER …` (3.x renamed `SEARCH`). Verified live (ranked
-  full-text, HNSW ordering). **(Unreleased)**
+  full-text, HNSW ordering). **(0.8.0)**
 
 - [x] **SurrealDB 3.x type-system features.** Closures (the typed `Closure`
   node: `|$x: int| -> int $x * 2`), `references` (the derive's
@@ -156,7 +162,7 @@ SurrealDB 3.x type system) that benefits from doing P2 first.
   union / literal field types (via `#[field(ty = "int | string")]` /
   `#[field(ty = "'a' | 'b'")]`) are covered and verified live. `future<T>` is
   intentionally omitted — the keyword was removed in SurrealDB 3.x (use a
-  computed `#[field(value = "…")]`). **(Unreleased)** Anonymous-function /
+  computed `#[field(value = "…")]`). **(0.8.0)** Anonymous-function /
   union / literal *types* in the type mapper remain expressible through the `ty`
   override rather than dedicated syntax, by design.
 
@@ -186,19 +192,20 @@ SurrealDB 3.x type system) that benefits from doing P2 first.
    patches). All new surface targets 3.x syntax and semantics. The in-memory
    engine used in tests pins `surrealdb = "3"`.
 
-## Version targets (aspirational)
+## Version history & targets
+
+Versions **0.3–0.8 have shipped**; **1.0** is the remaining target.
 
 | Version | Focus | Key deliverables |
 |---------|-------|-----------------|
-| **0.6** | Transactions + parameters | `BEGIN`/`COMMIT`/`CANCEL` builders, `$param` binding mode, `LET` builder |
-| **0.7** | SELECT completeness | Subqueries, `VALUE`/`SPLIT`/`OMIT`, `RETURN <projection>`, `WITH`, `PARALLEL`, `TIMEOUT`, `EXPLAIN` |
-| **0.8** | Schema DDL + control flow | `DEFINE EVENT`/`FUNCTION`/`ANALYZER`/`PARAM`, field `ASSERT`/`READONLY`/`PERMISSIONS`, `IF`/`FOR` builders, `#[derive(SurrealEdge)]` |
-| **0.9** | Auth + live queries | `SIGNIN`/`SIGNUP`/`authenticate`, JWT support, `LIVE SELECT` + notification stream, search/vector query helpers |
-| **1.0** | Stabilization | Audit public surface, remove vestigial APIs, freeze trait bounds, MSRV bump policy ratifies |
+| **0.3–0.5** | P0/P1 — correctness + high-value | record-id escaping, geometry, graph traversal in `SELECT`, `DEFINE INDEX`, `UPSERT`, richer type mapping |
+| **0.6** | P2 — transactions, params, SELECT extras, schema DDL, control flow | `BEGIN`/`COMMIT`/`CANCEL`, `$param` + `LET`, subqueries/`VALUE`/`SPLIT`/`OMIT`/`WITH`/`TIMEOUT`/`EXPLAIN`, `DEFINE EVENT`/`FUNCTION`/`ANALYZER`/`PARAM`, field `ASSERT`/`READONLY`/`PERMISSIONS`, `IF`/`FOR`, `#[derive(SurrealEdge)]` |
+| **0.7** | Pre-1.0 cleanup (breaking) | `count()` arg dropped, builder string args unified, release-pipeline hardening |
+| **0.8** | P3 — auth, live queries, search, 3.x type-system | `Credentials` + `connect_with`, record `SIGNIN`/`SIGNUP`/`authenticate`/`invalidate`, `LIVE SELECT` stream, `Table::search`/`nearest`, `Closure`, `#[field(reference)]` |
+| **1.0** | Stabilization | Audit public surface, remove vestigial APIs, freeze trait bounds, ratify MSRV bump policy |
 
-These are not commitments — they're a shared understanding of the logical
-order. Features ship when they're ready; the version above is just the
-release that *includes* the feature, not necessarily the one that *introduces*
+The shipped rows record what each release *included*; features ship when they're
+ready, so a feature's release isn't necessarily the one that first *introduced*
 it.
 
 ## Non-goals
