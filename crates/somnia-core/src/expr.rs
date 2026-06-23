@@ -1069,6 +1069,99 @@ impl DynExpr for ContainsExpr {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Full-text + vector search operators (@@ and <|k|>)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Full-text match `<left> @@ <right>` (SurrealQL's `MATCHES`), requiring a
+/// `SEARCH` index on the field. With a match *reference* it renders `@{n}@`,
+/// which lets `search::score(n)` / `search::highlight(…, n)` pull relevance and
+/// highlights for that predicate. Usually built via [`Column::matches`] or the
+/// [`Search`](crate::query::Search) builder.
+#[derive(Debug)]
+pub struct MatchesExpr {
+    pub(crate) left: Box<dyn DynExpr>,
+    pub(crate) right: Box<dyn DynExpr>,
+    pub(crate) reference: Option<u8>,
+}
+
+impl MatchesExpr {
+    /// Set the match reference `n` (renders `@n@`), enabling `search::score(n)`.
+    pub fn reference(mut self, n: u8) -> Self {
+        self.reference = Some(n);
+        self
+    }
+    fn op(&self) -> String {
+        match self.reference {
+            Some(r) => format!("@{r}@"),
+            None => "@@".to_string(),
+        }
+    }
+}
+
+impl DynExpr for MatchesExpr {
+    fn render_dyn(&self, buf: &mut String) {
+        self.left.render_dyn(buf);
+        buf.push(' ');
+        buf.push_str(&self.op());
+        buf.push(' ');
+        self.right.render_dyn(buf);
+    }
+    fn render_dyn_params(
+        &self,
+        buf: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        self.left.render_dyn_params(buf, params);
+        buf.push(' ');
+        buf.push_str(&self.op());
+        buf.push(' ');
+        self.right.render_dyn_params(buf, params);
+    }
+}
+
+/// K-nearest-neighbour operator `<field> <|k[,opt]|> <vector>`. With no option
+/// it uses the field's vector index (`<|k|>`); `opt` carries either a brute-force
+/// distance metric (`<|k,EUCLIDEAN|>`) or an HNSW search size (`<|k,40|>`).
+/// Usually built via the [`VectorSearch`](crate::query::VectorSearch) builder.
+#[derive(Debug)]
+pub struct KnnExpr {
+    pub(crate) left: Box<dyn DynExpr>,
+    pub(crate) right: Box<dyn DynExpr>,
+    pub(crate) k: u32,
+    pub(crate) opt: Option<String>,
+}
+
+impl KnnExpr {
+    fn op(&self) -> String {
+        match &self.opt {
+            Some(o) => format!("<|{},{}|>", self.k, o),
+            None => format!("<|{}|>", self.k),
+        }
+    }
+}
+
+impl DynExpr for KnnExpr {
+    fn render_dyn(&self, buf: &mut String) {
+        self.left.render_dyn(buf);
+        buf.push(' ');
+        buf.push_str(&self.op());
+        buf.push(' ');
+        self.right.render_dyn(buf);
+    }
+    fn render_dyn_params(
+        &self,
+        buf: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        self.left.render_dyn_params(buf, params);
+        buf.push(' ');
+        buf.push_str(&self.op());
+        buf.push(' ');
+        self.right.render_dyn_params(buf, params);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Column operator methods (Diesel-style: asset.name.eq("foo"))
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1156,6 +1249,16 @@ impl<T: SurrealRecord, V: SurrealQL> Column<T, V> {
         Raw(format!("{} IS NONE", self.name))
     }
 
+    /// Full-text match `column @@ <query>` — requires a `SEARCH` index on the
+    /// column. Chain [`reference`](MatchesExpr::reference) to enable scoring.
+    pub fn matches(&self, query: impl Into<String>) -> MatchesExpr {
+        MatchesExpr {
+            left: self.dyn_box(),
+            right: Box::new(Literal(query.into())),
+            reference: None,
+        }
+    }
+
     fn dyn_box(&self) -> Box<dyn DynExpr> {
         Box::new(Self {
             name: self.name,
@@ -1191,6 +1294,8 @@ combinators!(
     InExpr,
     NotInExpr,
     NotExpr,
+    MatchesExpr,
+    KnnExpr,
     Raw
 );
 
@@ -1222,6 +1327,84 @@ impl DynExpr for Grouped {
 }
 
 combinators!(Grouped, Func, Path);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Closure — anonymous function `|$a: t, …| [-> ret] <body>`
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// A SurrealQL anonymous function (closure), e.g. `|$x: int| -> int $x * 2`. As
+/// a [`DynExpr`] it nests anywhere an expression is taken — a `SET` value, a
+/// `DEFINE PARAM`/`LET` value, or an argument to a higher-order function
+/// (`array::map($xs, |$x: int| $x * 2)`).
+///
+/// ```ignore
+/// Closure::new(Raw("$x * 2".into())).arg("x", "int").returns("int");
+/// // |$x: int| -> int $x * 2
+/// ```
+#[derive(Debug)]
+pub struct Closure {
+    args: Vec<(String, String)>,
+    returns: Option<String>,
+    body: Box<dyn DynExpr>,
+}
+
+impl Closure {
+    /// A closure with the given body and no arguments yet.
+    pub fn new(body: impl DynExpr + 'static) -> Self {
+        Self {
+            args: Vec::new(),
+            returns: None,
+            body: Box::new(body),
+        }
+    }
+    /// Add a typed argument `$name: <surreal_type>` (a leading `$` is optional).
+    pub fn arg(mut self, name: impl Into<String>, surreal_type: impl Into<String>) -> Self {
+        let mut name = name.into();
+        if !name.starts_with('$') {
+            name.insert(0, '$');
+        }
+        self.args.push((name, surreal_type.into()));
+        self
+    }
+    /// Set the return type (`-> <surreal_type>`).
+    pub fn returns(mut self, surreal_type: impl Into<String>) -> Self {
+        self.returns = Some(surreal_type.into());
+        self
+    }
+
+    fn render_head(&self, buf: &mut String) {
+        buf.push('|');
+        for (i, (name, ty)) in self.args.iter().enumerate() {
+            if i > 0 {
+                buf.push_str(", ");
+            }
+            buf.push_str(name);
+            buf.push_str(": ");
+            buf.push_str(ty);
+        }
+        buf.push('|');
+        if let Some(ret) = &self.returns {
+            buf.push_str(" -> ");
+            buf.push_str(ret);
+        }
+        buf.push(' ');
+    }
+}
+
+impl DynExpr for Closure {
+    fn render_dyn(&self, buf: &mut String) {
+        self.render_head(buf);
+        self.body.render_dyn(buf);
+    }
+    fn render_dyn_params(
+        &self,
+        buf: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+    ) {
+        self.render_head(buf);
+        self.body.render_dyn_params(buf, params);
+    }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // IfExpr — IF … THEN … ELSE IF … ELSE … END

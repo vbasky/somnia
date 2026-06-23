@@ -32,21 +32,26 @@
 //! }
 //! ```
 
+pub mod auth;
 pub mod connection;
+pub mod live;
 pub mod migrate;
 
+pub use auth::Credentials;
 pub use connection::{SomniaClient, SomniaError};
+pub use live::{Action, LiveQueryStream, Notification};
 pub use migrate::{MigrationStatus, Migrator};
 pub use somnia_core::{
     col,
     expr::{
-        Column, ColumnMeta, ColumnSet, DynExpr, IfExpr, Literal, Order, Param, Path, SurrealQL,
+        Closure, Column, ColumnMeta, ColumnSet, DynExpr, IfExpr, KnnExpr, Literal, MatchesExpr,
+        Order, Param, Path, SurrealQL,
     },
     field, ident,
     query::{
         Batch, Create, DefineAnalyzer, DefineEvent, DefineFunction, DefineIndex, DefineParam,
-        Delete, For, Insert, LetVar, Relate, RelateEdge, Returning, Select, Table, Transaction,
-        Update,
+        Delete, For, Insert, LetVar, Relate, RelateEdge, Returning, Search, Select, Table,
+        Transaction, Update, VectorSearch,
     },
     types::{Key, SurrealEdge, SurrealRecord, SurrealSchema, Thing},
     DynExprBox, Func, Grouped, Ident, NoneLit, Projection, Raw, RecordLink,

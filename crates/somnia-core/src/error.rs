@@ -14,6 +14,8 @@ pub enum SomniaError {
     },
     #[error("connection: {0}")]
     Connection(String),
+    #[error("authentication: {0}")]
+    Auth(String),
     #[error("migration: {0}")]
     Migration(String),
     #[error("serde: {0}")]
@@ -37,5 +39,8 @@ impl SomniaError {
     }
     pub fn migration(msg: impl Into<String>) -> Self {
         Self::Migration(msg.into())
+    }
+    pub fn auth(msg: impl Into<String>) -> Self {
+        Self::Auth(msg.into())
     }
 }

@@ -44,7 +44,7 @@ use syn::{parse_macro_input, Data, DeriveInput, Fields, Meta};
 /// | `name = "…"` | index name (required) |
 /// | `fields = "a, b"` / `columns = "…"` | indexed field list (required) |
 /// | `unique` | `UNIQUE` constraint |
-/// | `search = "analyzer"` | full-text `SEARCH ANALYZER …` index |
+/// | `search = "analyzer"` | full-text `FULLTEXT ANALYZER …` index |
 /// | `hnsw = N` / `mtree = N` (+ `dist = "COSINE"`) | vector index of dimension `N` |
 /// | `raw = "…"` | verbatim trailing clause (escape hatch) |
 /// | `comment = "…"`, `concurrently`, `overwrite` | `COMMENT` / `CONCURRENTLY` / drop `IF NOT EXISTS` |
@@ -62,6 +62,7 @@ use syn::{parse_macro_input, Data, DeriveInput, Fields, Meta};
 /// | `#[field(readonly)]` | mark the field `READONLY` |
 /// | `#[field(permissions = "…")]` | `PERMISSIONS …` clause (e.g. `FOR select FULL FOR update NONE`) |
 /// | `#[field(flexible)]` | mark the field `FLEXIBLE` |
+/// | `#[field(reference)]` / `#[field(reference = "cascade")]` | record link is a `REFERENCE` (optional `ON DELETE` `reject`/`ignore`/`cascade`/`unset`) |
 /// | `#[field(name = "…")]` | use a DB column name different from the Rust field |
 /// | `#[field(skip)]` | omit the field entirely |
 ///
@@ -140,6 +141,7 @@ pub fn derive_surreal_record(input: TokenStream) -> TokenStream {
             assert: find_field_attr(&field.attrs, "assert"),
             readonly: has_field_attr(&field.attrs, "readonly"),
             permissions: find_field_attr(&field.attrs, "permissions"),
+            reference: parse_reference_clause(&field.attrs),
         });
     }
 
@@ -199,8 +201,9 @@ pub fn derive_surreal_record(input: TokenStream) -> TokenStream {
             let value = f.value.as_ref().map(|v| format!(" VALUE {v}")).unwrap_or_default();
             let assert = f.assert.as_ref().map(|a| format!(" ASSERT {a}")).unwrap_or_default();
             let permissions = f.permissions.as_ref().map(|p| format!(" PERMISSIONS {p}")).unwrap_or_default();
+            let reference = f.reference.clone().unwrap_or_default();
             format!(
-                "DEFINE FIELD IF NOT EXISTS {} ON TABLE {table_name} {flex}TYPE {ty}{default}{readonly}{value}{assert}{permissions};",
+                "DEFINE FIELD IF NOT EXISTS {} ON TABLE {table_name} {flex}TYPE {ty}{default}{readonly}{value}{assert}{reference}{permissions};",
                 f.db_name,
             )
         })
@@ -279,6 +282,8 @@ struct FieldDef {
     assert: Option<String>,
     readonly: bool,
     permissions: Option<String>,
+    /// Pre-rendered ` REFERENCE [ON DELETE …]` clause from `#[field(reference …)]`.
+    reference: Option<String>,
 }
 
 /// Parsed `#[table(...)]` options.
@@ -461,7 +466,7 @@ fn parse_index_attrs(attrs: &[syn::Attribute]) -> Vec<IndexAttr> {
 
             // Tail precedence: raw > search > vector. `unique` is handled at render.
             let tail = raw
-                .or_else(|| search.map(|a| format!("SEARCH ANALYZER {a}")))
+                .or_else(|| search.map(|a| format!("FULLTEXT ANALYZER {a}")))
                 .or_else(|| {
                     vector.map(|(kind, dim)| match &dist {
                         Some(d) => format!("{kind} DIMENSION {dim} DIST {d}"),
@@ -530,6 +535,28 @@ fn has_field_attr(attrs: &[syn::Attribute], key: &str) -> bool {
         }
     }
     false
+}
+
+/// Build the ` REFERENCE [ON DELETE …]` clause for a record-link field:
+/// - `#[field(reference)]` → ` REFERENCE` (engine default delete strategy)
+/// - `#[field(reference = "cascade")]` → ` REFERENCE ON DELETE CASCADE`
+///   (`reject`/`ignore`/`cascade`/`unset`; any other value passes through after
+///   `ON DELETE`, e.g. `"then fn::cleanup()"`).
+fn parse_reference_clause(attrs: &[syn::Attribute]) -> Option<String> {
+    if let Some(strategy) = find_field_attr(attrs, "reference") {
+        let s = strategy.trim();
+        let clause = match s.to_uppercase().as_str() {
+            kw @ ("REJECT" | "IGNORE" | "CASCADE" | "UNSET") => {
+                format!(" REFERENCE ON DELETE {kw}")
+            }
+            _ => format!(" REFERENCE ON DELETE {s}"),
+        };
+        return Some(clause);
+    }
+    if has_field_attr(attrs, "reference") {
+        return Some(" REFERENCE".to_string());
+    }
+    None
 }
 
 /// SurrealQL type for a typed-column accessor (used by the query builder).

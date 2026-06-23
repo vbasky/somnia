@@ -217,6 +217,65 @@ for m in migrator.status().await? {
 Applied migrations are tracked in a `_somnia_migrations` table, so re-running only
 applies what's pending.
 
+## Connecting and authentication
+
+`SomniaClient::connect` signs in as a **root** user and selects a
+namespace/database:
+
+```rust
+let client = SomniaClient::connect("ws://localhost:8000", "root", "root", "app", "app").await?;
+```
+
+For other auth levels, `connect_with` takes a `Credentials` enum (root,
+namespace, database, or a pre-issued token):
+
+```rust
+use somnia::Credentials;
+
+let client = SomniaClient::connect_with(
+    "ws://localhost:8000", "app", "app",
+    Credentials::database("app", "app", "svc", "secret"),
+).await?;
+```
+
+Record (scope) auth signs up / signs in against a `DEFINE ACCESS … TYPE RECORD`
+method with arbitrary serializable params and returns the issued token; a JWT can
+be re-attached with `authenticate`, and `invalidate` clears the session:
+
+```rust
+let token = client
+    .signup_record("app", "app", "account",
+        &serde_json::json!({ "email": "a@b.com", "pass": "secret" }))
+    .await?;
+
+client.authenticate(&token).await?;   // attach a JWT to later requests
+client.invalidate().await?;           // drop the session's auth
+```
+
+`connect_anonymous(endpoint, ns, db)` connects without signing in — handy for the
+embedded `mem://` / `rocksdb://` engines or deferred auth.
+
+### Live queries
+
+`live_select::<T>()` starts a `LIVE SELECT` on `T`'s table and streams typed
+change notifications; dropping the stream issues `KILL` server-side:
+
+```rust
+use futures::StreamExt;
+use somnia::Action;
+
+let mut stream = client.live_select::<Post>().await?;
+while let Some(note) = stream.next().await {
+    let note = note?;            // Notification<Post>
+    match note.action {
+        Action::Create => println!("created {:?}", note.data),
+        Action::Update => println!("updated {:?}", note.data),
+        Action::Delete => println!("deleted {:?}", note.data),
+    }
+}
+// `stream` dropped here → KILL sent.
+```
+
 ## More query power
 
 somnia models much of SurrealDB's surface as typed builders, so you rarely fall
@@ -400,6 +459,55 @@ struct Account {
 // DEFINE FIELD … secret … TYPE string PERMISSIONS FOR select WHERE id = $auth.id;
 ```
 
+### Full-text and vector search
+
+Pair a `FULLTEXT` or `HNSW` index (see [Schema as code](#schema-as-code)) with the
+`search` / `nearest` builders:
+
+```rust
+// full-text, ranked by BM25 relevance
+let sql = Post::table()
+    .search("body", "rust database")
+    .score_as("score")
+    .order_by_score()
+    .limit(10)
+    .to_surrealql();
+// "SELECT *, search::score(0) AS score FROM post
+//    WHERE body @0@ 'rust database' ORDER BY score DESC LIMIT 10"
+
+// vector K-nearest-neighbour, nearest first
+let sql = Doc::table()
+    .nearest("embedding", vec![0.1, 0.2, 0.3])
+    .k(5)
+    .distance_as("dist")
+    .order_by_distance()
+    .to_surrealql();
+// "SELECT *, vector::distance::knn() AS dist FROM doc
+//    WHERE embedding <|5,5|> [0.1, 0.2, 0.3] ORDER BY dist"
+```
+
+### Closures and record references
+
+Build anonymous functions with `Closure`, and mark record links as tracked
+`REFERENCE`s in the derive:
+
+```rust
+use somnia::{Closure, Raw};
+
+let doubler = Closure::new(Raw("$x * 2".into())).arg("x", "int").returns("int");
+// |$x: int| -> int $x * 2
+
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealRecord)]
+#[table("comment")]
+struct Comment {
+    #[field(thing)] id: Thing<Comment>,
+    // DEFINE FIELD … TYPE record<user> REFERENCE ON DELETE CASCADE
+    #[field(record = "user", reference = "cascade")]
+    author: Thing<User>,
+    body: String,
+}
+```
+
 ### Graph edges
 
 Define an edge record once and **derive** its `SurrealEdge` impl (the edge name
@@ -452,8 +560,9 @@ the full list).
 ## Status
 
 `0.7.x` — early but tested against SurrealDB 3.x (query builder, derive, schema
-generation, and migrator all covered by integration tests that run on an
-in-memory engine). The API may evolve before `1.0`. See the
+generation, migrator, typed auth, live queries, and full-text/vector search
+helpers all covered by integration tests that run on an in-memory engine). The
+API may evolve before `1.0`. See the
 [roadmap](https://github.com/vbasky/somnia/blob/main/ROADMAP.md) for what's covered today and what's planned on the way to
 `1.0`.
 

@@ -140,6 +140,20 @@ impl<T: SurrealRecord> Table<T> {
     pub fn delete(self) -> Delete<T> {
         Delete::for_table()
     }
+
+    /// Begin a full-text [`Search`] over `field` for `query`
+    /// (`SELECT … FROM <table> WHERE field @@ 'query'`). Pair with a `SEARCH`
+    /// index on the field (see [`DefineIndex::search`]).
+    pub fn search(self, field: impl Into<String>, query: impl Into<String>) -> Search<T> {
+        Search::bare(field, query)
+    }
+
+    /// Begin a vector K-nearest-neighbour [`VectorSearch`] over `field` for the
+    /// query `vector` (`SELECT … FROM <table> WHERE field <|k|> [vector]`). Pair
+    /// with an `HNSW`/`MTREE` index on the field (see [`DefineIndex::hnsw`]).
+    pub fn nearest(self, field: impl Into<String>, vector: Vec<f32>) -> VectorSearch<T> {
+        VectorSearch::bare(field, vector)
+    }
 }
 
 impl<T: SurrealRecord> Default for Table<T> {
@@ -489,6 +503,351 @@ impl<T: SurrealRecord> DynExpr for Select<T> {
 }
 
 impl<T: SurrealRecord> std::fmt::Display for Select<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_surrealql())
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SEARCH — full-text query helper (field @@ 'query')
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// A full-text `SELECT` over a `SEARCH`-indexed field, reached from
+/// [`Table::search`]. Renders `SELECT … FROM <table> WHERE field @@ 'query'`,
+/// and — once a match [`reference`](Self::reference) is set — can project
+/// `search::score(n)` and order by relevance.
+///
+/// ```ignore
+/// Post::table()
+///     .search("body", "rust database")
+///     .score_as("score")     // SELECT *, search::score(0) AS score
+///     .order_by_score()      // ORDER BY search::score(0) DESC
+///     .limit(10)
+///     .to_surrealql();
+/// // SELECT *, search::score(0) AS score FROM post
+/// //   WHERE body @0@ 'rust database' ORDER BY score DESC LIMIT 10
+/// ```
+pub struct Search<T: SurrealRecord> {
+    _marker: std::marker::PhantomData<T>,
+    field: String,
+    query: String,
+    reference: Option<u8>,
+    extra: Option<Box<dyn DynExpr>>,
+    score_alias: Option<String>,
+    order_by_score: bool,
+    limit: Option<u32>,
+}
+
+impl<T: SurrealRecord> Search<T> {
+    fn bare(field: impl Into<String>, query: impl Into<String>) -> Self {
+        Self {
+            _marker: std::marker::PhantomData,
+            field: field.into(),
+            query: query.into(),
+            reference: None,
+            extra: None,
+            score_alias: None,
+            order_by_score: false,
+            limit: None,
+        }
+    }
+
+    /// The match reference used in `@n@` (default `0` once scoring is requested).
+    fn ref_num(&self) -> u8 {
+        self.reference.unwrap_or(0)
+    }
+
+    /// Set the match reference `n` explicitly (renders `field @n@ 'query'`).
+    pub fn reference(mut self, n: u8) -> Self {
+        self.reference = Some(n);
+        self
+    }
+
+    /// AND an additional predicate onto the `WHERE` clause.
+    pub fn filter(mut self, expr: impl DynExpr + 'static) -> Self {
+        self.extra = Some(match self.extra.take() {
+            Some(prev) => Box::new(crate::expr::AndExpr {
+                left: prev,
+                right: Box::new(expr),
+            }),
+            None => Box::new(expr),
+        });
+        self
+    }
+
+    /// Project the relevance score as `search::score(n) AS <alias>`. Enables the
+    /// match reference (`@n@`) so the score is computable.
+    pub fn score_as(mut self, alias: impl Into<String>) -> Self {
+        self.reference.get_or_insert(0);
+        self.score_alias = Some(alias.into());
+        self
+    }
+
+    /// `ORDER BY <score> DESC` — most relevant first. Projects the score (default
+    /// alias `score`) and enables the match reference, since `ORDER BY` sorts on
+    /// the projected alias rather than the `search::score(n)` call directly.
+    pub fn order_by_score(mut self) -> Self {
+        self.reference.get_or_insert(0);
+        self.score_alias.get_or_insert_with(|| "score".to_string());
+        self.order_by_score = true;
+        self
+    }
+
+    /// `LIMIT n`.
+    pub fn limit(mut self, n: u32) -> Self {
+        self.limit = Some(n);
+        self
+    }
+
+    fn predicate(&self) -> crate::expr::MatchesExpr {
+        crate::expr::MatchesExpr {
+            left: Box::new(crate::expr::Raw(self.field.clone())),
+            right: Box::new(crate::expr::Literal(self.query.clone())),
+            reference: self.reference,
+        }
+    }
+
+    fn render(
+        &self,
+        q: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+        param_mode: bool,
+    ) {
+        let r = self.ref_num();
+        q.push_str("SELECT *");
+        if let Some(alias) = &self.score_alias {
+            q.push_str(&format!(", search::score({r}) AS {alias}"));
+        }
+        q.push_str(" FROM ");
+        q.push_str(T::table_name());
+        q.push_str(" WHERE ");
+        let pred = self.predicate();
+        if param_mode {
+            pred.render_dyn_params(q, params);
+        } else {
+            pred.render_dyn(q);
+        }
+        if let Some(extra) = &self.extra {
+            q.push_str(" AND ");
+            if param_mode {
+                extra.render_dyn_params(q, params);
+            } else {
+                extra.render_dyn(q);
+            }
+        }
+        if self.order_by_score {
+            let alias = self.score_alias.as_deref().unwrap_or("score");
+            q.push_str(&format!(" ORDER BY {alias} DESC"));
+        }
+        if let Some(n) = self.limit {
+            q.push_str(&format!(" LIMIT {n}"));
+        }
+    }
+
+    /// Render to a SurrealQL string with literals inlined.
+    pub fn to_surrealql(&self) -> String {
+        let mut q = String::new();
+        let mut sink = BTreeMap::new();
+        self.render(&mut q, &mut sink, false);
+        q
+    }
+
+    /// Render with `$param` placeholders (the search query becomes a bound param).
+    pub fn to_surrealql_with_params(&self) -> (String, BTreeMap<String, serde_json::Value>) {
+        let mut params = BTreeMap::new();
+        let mut q = String::new();
+        self.render(&mut q, &mut params, true);
+        (q, params)
+    }
+}
+
+impl<T: SurrealRecord> std::fmt::Display for Search<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_surrealql())
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VECTOR SEARCH — KNN query helper (field <|k|> [vector])
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// How the KNN operator resolves neighbours. SurrealDB 3.x requires the operator
+/// to carry a second operand — either an HNSW candidate-list size (`<|k,ef|>`,
+/// using the field's `HNSW` index) or a brute-force distance metric
+/// (`<|k,METRIC|>`). The bare `<|k|>` form is no longer supported.
+#[derive(Debug, Clone)]
+enum KnnMode {
+    /// `<|k,ef|>` — HNSW index search; `ef` (candidate-list size) defaults to `k`.
+    Hnsw(Option<u32>),
+    /// `<|k,METRIC|>` — brute force with the named distance (e.g. `EUCLIDEAN`).
+    Brute(String),
+}
+
+/// A vector K-nearest-neighbour `SELECT`, reached from [`Table::nearest`].
+/// Renders `SELECT … FROM <table> WHERE field <|k,ef|> [vector]`, optionally
+/// projecting / ordering by the computed `vector::distance::knn()`. By default
+/// it uses the field's HNSW index with `ef = k`; call [`distance`](Self::distance)
+/// for a brute-force scan or [`ef`](Self::ef) to tune recall.
+///
+/// ```ignore
+/// Doc::table()
+///     .nearest("embedding", vec![0.1, 0.2, 0.3])
+///     .k(5)
+///     .distance_as("dist")      // SELECT *, vector::distance::knn() AS dist
+///     .order_by_distance()      // ORDER BY dist
+///     .to_surrealql();
+/// // SELECT *, vector::distance::knn() AS dist FROM doc
+/// //   WHERE embedding <|5,5|> [0.1, 0.2, 0.3] ORDER BY dist
+/// ```
+pub struct VectorSearch<T: SurrealRecord> {
+    _marker: std::marker::PhantomData<T>,
+    field: String,
+    vector: Vec<f32>,
+    k: u32,
+    mode: KnnMode,
+    extra: Option<Box<dyn DynExpr>>,
+    distance_alias: Option<String>,
+    order_by_distance: bool,
+    limit: Option<u32>,
+}
+
+impl<T: SurrealRecord> VectorSearch<T> {
+    fn bare(field: impl Into<String>, vector: Vec<f32>) -> Self {
+        Self {
+            _marker: std::marker::PhantomData,
+            field: field.into(),
+            vector,
+            k: 10,
+            mode: KnnMode::Hnsw(None),
+            extra: None,
+            distance_alias: None,
+            order_by_distance: false,
+            limit: None,
+        }
+    }
+
+    /// Number of neighbours `k` to return (default `10`).
+    pub fn k(mut self, k: u32) -> Self {
+        self.k = k;
+        self
+    }
+
+    /// Brute-force KNN with an explicit distance metric (`<|k,METRIC|>`), e.g.
+    /// `"EUCLIDEAN"`, `"COSINE"`, `"MANHATTAN"`.
+    pub fn distance(mut self, metric: impl Into<String>) -> Self {
+        self.mode = KnnMode::Brute(metric.into());
+        self
+    }
+
+    /// HNSW KNN with explicit candidate-list size `ef` (`<|k,ef|>`); larger `ef`
+    /// trades latency for recall. Defaults to `ef = k` when unset.
+    pub fn ef(mut self, ef: u32) -> Self {
+        self.mode = KnnMode::Hnsw(Some(ef));
+        self
+    }
+
+    /// AND an additional predicate onto the `WHERE` clause.
+    pub fn filter(mut self, expr: impl DynExpr + 'static) -> Self {
+        self.extra = Some(match self.extra.take() {
+            Some(prev) => Box::new(crate::expr::AndExpr {
+                left: prev,
+                right: Box::new(expr),
+            }),
+            None => Box::new(expr),
+        });
+        self
+    }
+
+    /// Project the computed distance as `vector::distance::knn() AS <alias>`.
+    pub fn distance_as(mut self, alias: impl Into<String>) -> Self {
+        self.distance_alias = Some(alias.into());
+        self
+    }
+
+    /// `ORDER BY <distance>` — nearest first. Projects the computed distance
+    /// (default alias `distance`), since `ORDER BY` sorts on the projected alias
+    /// rather than the `vector::distance::knn()` call directly.
+    pub fn order_by_distance(mut self) -> Self {
+        self.distance_alias
+            .get_or_insert_with(|| "distance".to_string());
+        self.order_by_distance = true;
+        self
+    }
+
+    /// `LIMIT n`.
+    pub fn limit(mut self, n: u32) -> Self {
+        self.limit = Some(n);
+        self
+    }
+
+    fn predicate(&self) -> crate::expr::KnnExpr {
+        let opt = match &self.mode {
+            KnnMode::Hnsw(Some(ef)) => Some(ef.to_string()),
+            KnnMode::Hnsw(None) => Some(self.k.to_string()),
+            KnnMode::Brute(m) => Some(m.clone()),
+        };
+        crate::expr::KnnExpr {
+            left: Box::new(crate::expr::Raw(self.field.clone())),
+            right: Box::new(crate::expr::Literal(self.vector.clone())),
+            k: self.k,
+            opt,
+        }
+    }
+
+    fn render(
+        &self,
+        q: &mut String,
+        params: &mut BTreeMap<String, serde_json::Value>,
+        param_mode: bool,
+    ) {
+        q.push_str("SELECT *");
+        if let Some(alias) = &self.distance_alias {
+            q.push_str(&format!(", vector::distance::knn() AS {alias}"));
+        }
+        q.push_str(" FROM ");
+        q.push_str(T::table_name());
+        q.push_str(" WHERE ");
+        let pred = self.predicate();
+        if param_mode {
+            pred.render_dyn_params(q, params);
+        } else {
+            pred.render_dyn(q);
+        }
+        if let Some(extra) = &self.extra {
+            q.push_str(" AND ");
+            if param_mode {
+                extra.render_dyn_params(q, params);
+            } else {
+                extra.render_dyn(q);
+            }
+        }
+        if self.order_by_distance {
+            let alias = self.distance_alias.as_deref().unwrap_or("distance");
+            q.push_str(&format!(" ORDER BY {alias}"));
+        }
+        if let Some(n) = self.limit {
+            q.push_str(&format!(" LIMIT {n}"));
+        }
+    }
+
+    /// Render to a SurrealQL string with the query vector inlined.
+    pub fn to_surrealql(&self) -> String {
+        let mut q = String::new();
+        let mut sink = BTreeMap::new();
+        self.render(&mut q, &mut sink, false);
+        q
+    }
+
+    /// Render with `$param` placeholders (the query vector becomes a bound param).
+    pub fn to_surrealql_with_params(&self) -> (String, BTreeMap<String, serde_json::Value>) {
+        let mut params = BTreeMap::new();
+        let mut q = String::new();
+        self.render(&mut q, &mut params, true);
+        (q, params)
+    }
+}
+
+impl<T: SurrealRecord> std::fmt::Display for VectorSearch<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_surrealql())
     }
@@ -1427,10 +1786,12 @@ impl DefineIndex {
         self.kind = IndexKind::Unique;
         self
     }
-    /// A full-text `SEARCH ANALYZER <analyzer>` index. Append further options
-    /// (`BM25`, `HIGHLIGHTS`, …) with [`raw`](Self::raw) if your engine needs them.
+    /// A full-text `FULLTEXT ANALYZER <analyzer>` index (SurrealDB 3.x; the
+    /// pre-3.x `SEARCH` keyword is no longer accepted). Append further options
+    /// (`BM25`, `HIGHLIGHTS`, …) with [`raw`](Self::raw) — `BM25` is required for
+    /// `search::score()` to be available.
     pub fn search(mut self, analyzer: impl Into<String>) -> Self {
-        self.kind = IndexKind::Raw(format!("SEARCH ANALYZER {}", analyzer.into()));
+        self.kind = IndexKind::Raw(format!("FULLTEXT ANALYZER {}", analyzer.into()));
         self
     }
     /// An `HNSW` vector index of the given dimension and distance function

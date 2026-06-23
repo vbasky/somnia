@@ -17,6 +17,7 @@ somnia-core = { path = "../somnia-core", version = "0.7.0" }
 somnia-derive = { path = "../somnia-derive", version = "0.7.0" }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
+futures-core = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 surrealdb = { version = "3.0.1", features = ["protocol-ws"] }
@@ -28,3 +29,4 @@ uuid = { version = "1", features = ["v4", "v7"] }
 [dev-dependencies]
 surrealdb = { version = "3.0.1", features = ["kv-mem"] }
 tokio = { version = "1", features = ["full"] }
+futures = "0.3"

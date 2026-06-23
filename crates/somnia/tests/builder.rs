@@ -803,7 +803,7 @@ mod tests {
                 .overwrite()
                 .concurrently()
                 .to_surrealql(),
-            "DEFINE INDEX bio_idx ON TABLE user FIELDS bio SEARCH ANALYZER ascii COMMENT 'full text' CONCURRENTLY"
+            "DEFINE INDEX bio_idx ON TABLE user FIELDS bio FULLTEXT ANALYZER ascii COMMENT 'full text' CONCURRENTLY"
         );
     }
 

@@ -8,9 +8,64 @@ The section header for each release is `## [<version>] - <YYYY-MM-DD>`; the
 release workflow extracts the matching section verbatim as the GitHub Release
 notes, so keep this format intact.
 
-## [Unreleased]
+## [0.8.0] - 2026-06-23
+
+Completes the P3 roadmap tier: typed authentication, live queries, full-text /
+vector search helpers, and SurrealDB 3.x type-system surface (closures,
+`REFERENCE`s, union / literal types). **Two small breaking changes**: a new
+`SomniaError::Auth` variant (breaks exhaustive matches on `SomniaError`), and
+`DefineIndex::search()` / `#[index(search = …)]` now emit `FULLTEXT ANALYZER …`
+instead of the pre-3.x `SEARCH ANALYZER …` (changed output, same API). Bump your
+dependency to `somnia = "0.8"`.
+
+### Added
+
+- **Authentication (P3).** The client grows a typed auth surface beyond
+  root-only signin. A `Credentials` enum (`Root` / `Namespace` / `Database` /
+  `Token`, each with an ergonomic constructor) drives the new
+  `SomniaClient::connect_with(endpoint, ns, db, creds)`, and
+  `connect_anonymous(endpoint, ns, db)` connects without signing in (for
+  embedded engines or deferred auth). On an existing connection:
+  `signin(&creds)`, record/scope auth via `signin_record` / `signup_record`
+  (params are any `Serialize` value, flattened into the access method's
+  `$params`), `authenticate(token)` to attach a pre-issued JWT, and
+  `invalidate()` to clear the session. Signin/signup/record calls return the
+  issued access token. Auth failures surface as a new `SomniaError::Auth`
+  variant. Verified end-to-end against the live in-memory engine (record
+  signup → signin → invalidate, wrong-password rejection).
+
+- **Live queries (P3).** `SomniaClient::live_select::<T>()` starts a `LIVE
+  SELECT` on `T`'s table and returns a `LiveQueryStream<T>` — a `futures`
+  `Stream` of `Notification<T>` carrying the change `Action`
+  (`Create`/`Update`/`Delete`), the originating `query_id`, and the deserialized
+  record. Dropping the stream issues `KILL` server-side (no explicit teardown).
+  Works on the embedded (`mem://`) engine and over `ws://`. Verified live
+  (create → update → delete notifications with the decoded record).
+
+- **Vector / full-text query helpers (P3).** `Table::search(field, query) →
+  Search<T>` builds full-text `WHERE field @@ 'query'` selects with optional
+  `search::score` projection / relevance ordering; `Table::nearest(field, vec) →
+  VectorSearch<T>` builds vector KNN selects (`<|k,ef|>` HNSW or `<|k,METRIC|>`
+  brute force) with `vector::distance::knn()` projection / nearest-first
+  ordering. New composable expression nodes `MatchesExpr` (`@@`) and `KnnExpr`
+  (`<|…|>`), plus `Column::matches`. Both render `to_surrealql[_with_params]` and
+  are verified live (ranked full-text search, HNSW nearest-neighbour ordering).
+
+- **SurrealDB 3.x type-system (P3).** A typed `Closure` expression node renders
+  anonymous functions (`|$x: int| -> int $x * 2`) for higher-order calls /
+  computed values. The derive gains `#[field(reference)]` /
+  `#[field(reference = "cascade")]` to emit record `REFERENCE [ON DELETE …]`.
+  Union (`#[field(ty = "int | string")]`) and literal
+  (`#[field(ty = "'a' | 'b'")]`) field types are confirmed end-to-end. `future<T>`
+  is intentionally omitted — the keyword no longer exists in SurrealDB 3.x.
 
 ### Changed
+
+- **(Fix) `DefineIndex::search()` / `#[index(search = …)]` now emit `FULLTEXT
+  ANALYZER …`** instead of the pre-3.x `SEARCH ANALYZER …`, which SurrealDB 3.x
+  rejects as a parse error. The method/attribute names are unchanged; only the
+  emitted keyword. Needed for the new full-text query helpers to run against a
+  real index.
 
 - **README** — expanded the terse "More query power" block into descriptive,
   per-feature sections (Parameters & `LET`, Transactions, Subqueries & `IN`,

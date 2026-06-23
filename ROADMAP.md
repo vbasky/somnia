@@ -120,35 +120,45 @@ frequent drop to `Raw` into a typed node.
 These are high-value but each touches a subsystem (client auth, streaming,
 SurrealDB 3.x type system) that benefits from doing P2 first.
 
-- [ ] **Live queries.** `LIVE SELECT` statement node + a
-  `LiveQueryStream<Item = Notification<T>>` returned by `SomniaClient`. The
-  notification payload should carry `action` (`CREATE`/`UPDATE`/`DELETE`) and
-  the deserialized `result: T`. The client layer needs to multiplex the
-  WebSocket subscription onto a `tokio::sync::broadcast` or an async channel so
-  the caller can iterate notifications as a stream. `KILL <query-id>` should be
-  handled by dropping the stream handle.
+- [x] **Live queries.** `SomniaClient::live_select::<T>()` returns a
+  `LiveQueryStream<T>` — a `futures::Stream` of `Notification<T>` carrying the
+  `action` (`Create`/`Update`/`Delete`), `query_id`, and the deserialized record
+  (decoded through `serde_json::Value` so `Thing<T>` resolves). It wraps
+  surrealdb's `select().live()` subscription; dropping the stream handle issues
+  `KILL`. Verified live on `mem://` (create/update/delete notifications).
+  **(Unreleased)** Still open: filtered/record-scoped live selects and a
+  standalone `LIVE SELECT` SurrealQL node (the client path builds it internally).
 
-- [ ] **Auth.** The current `SomniaClient::connect(root, pass, ns, db)` only
-  handles root-level signin + namespace/database selection. Add typed builders
-  for namespace/database user `SIGNIN` / `SIGNUP`, record-level
-  `authenticate()` / `invalidate()` (scope auth), and token/JWT handling — both
-  for issuing tokens and for attaching them to subsequent requests. The `connect`
-  path should grow a `Credentials` enum so the client can be constructed with
-  root, namespace, database, scope, or token credentials.
+- [x] **Auth.** A `Credentials` enum (`Root`/`Namespace`/`Database`/`Token`)
+  drives `SomniaClient::connect_with(endpoint, ns, db, creds)` alongside the
+  original root-only `connect`; `connect_anonymous` connects without signin (for
+  embedded engines / deferred auth). On a live connection: `signin(&creds)`,
+  record/scope `signin_record` / `signup_record` (params are any `Serialize`
+  value), `authenticate(token)` to attach a pre-issued JWT, and `invalidate()`.
+  Signin/signup return the issued access token; failures surface as
+  `SomniaError::Auth`. Verified against the live engine (record signup → signin →
+  invalidate, wrong-password rejection). **(Unreleased)** Still open: namespace/
+  database user `SIGNUP` (SurrealDB only allows `SIGNUP` on record access), and
+  refresh-token rotation.
 
-- [ ] **Vector / full-text search helpers.** `DEFINE INDEX … HNSW` and
-  `… SEARCH` are already covered by `DefineIndex`. What's missing are the
-  *query* helpers: typed `SELECT … WHERE vector::similarity::cosine(field, $q)`
-  or `… WHERE field @@ 'query'` builders that wrap the low-level index
-  primitives into a discoverable `Table::search() → Search<T>` or
-  `Table::nearest() → VectorSearch<T>` surface.
+- [x] **Vector / full-text search helpers.** `Table::search(field, query) →
+  Search<T>` (full-text `@@`, with `search::score` projection + relevance order)
+  and `Table::nearest(field, vec) → VectorSearch<T>` (KNN `<|k,ef|>` HNSW or
+  `<|k,METRIC|>` brute force, with `vector::distance::knn()` projection +
+  nearest-first order), backed by composable `MatchesExpr`/`KnnExpr` nodes and
+  `Column::matches`. The index side was also corrected: `DefineIndex::search()`
+  now emits `FULLTEXT ANALYZER …` (3.x renamed `SEARCH`). Verified live (ranked
+  full-text, HNSW ordering). **(Unreleased)**
 
-- [ ] **SurrealDB 3.x type-system features.** Futures (`future<T>`), closures /
-  anonymous functions, union types, `literal` types (TypeScript-style string
-  literal narrowing), and `references` (typed foreign-key-like links). These
-  are primarily additive to the expression tree and the derive's type mapper;
-  none affect existing P0–P2 surfaces. Tracked separately because SurrealDB
-  3.x itself is evolving these features and their syntax may shift.
+- [x] **SurrealDB 3.x type-system features.** Closures (the typed `Closure`
+  node: `|$x: int| -> int $x * 2`), `references` (the derive's
+  `#[field(reference[ = "cascade"])]` emitting `REFERENCE [ON DELETE …]`), and
+  union / literal field types (via `#[field(ty = "int | string")]` /
+  `#[field(ty = "'a' | 'b'")]`) are covered and verified live. `future<T>` is
+  intentionally omitted — the keyword was removed in SurrealDB 3.x (use a
+  computed `#[field(value = "…")]`). **(Unreleased)** Anonymous-function /
+  union / literal *types* in the type mapper remain expressible through the `ty`
+  override rather than dedicated syntax, by design.
 
 ## Design principles (for contributors)
 
