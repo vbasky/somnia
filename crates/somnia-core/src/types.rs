@@ -27,10 +27,10 @@ impl Key {
     }
 
     /// Render this key as a SurrealDB record-id key fragment — the part after
-    /// `table:`. Integers render bare; UUIDs and any string that isn't a simple
-    /// identifier are wrapped in backticks (with `\` and `` ` `` escaped) so they
-    /// parse as a single string id. Without this, a UUID key like
-    /// `asset:0190a-…` would be parsed as an arithmetic expression.
+    /// `table:`. Integers render bare; native UUIDs use SurrealDB's `u'…'`
+    /// literal form (so the key stays a real uuid, not a string that looks like
+    /// one); any other string that isn't a simple identifier is wrapped in
+    /// backticks (with `\` and `` ` `` escaped) so it parses as a single string id.
     pub fn render_id(&self, buf: &mut String) {
         use std::fmt::Write;
         match self {
@@ -38,7 +38,11 @@ impl Key {
                 let _ = write!(buf, "{i}");
             }
             Key::Uuid(u) => {
-                let _ = write!(buf, "`{u}`");
+                // Native UUID record-id key — must use the `u'…'` form, not
+                // backticks. Backticks would create a *string* key whose text
+                // happens to look like a UUID; SurrealDB then round-trips it
+                // as `table:u'…'` only for real Uuid keys.
+                let _ = write!(buf, "u'{u}'");
             }
             Key::String(s) if is_simple_ident(s) => buf.push_str(s),
             Key::String(s) => {
@@ -69,15 +73,69 @@ fn is_simple_ident(s: &str) -> bool {
 impl From<&str> for Key {
     /// Infers the key kind from the text: a valid UUID becomes [`Key::Uuid`], an
     /// integer becomes [`Key::Int`], and anything else becomes [`Key::String`].
+    ///
+    /// Accepts SurrealDB's SQL / JSON wire forms as well as bare values:
+    /// - bare UUID: `550e8400-e29b-41d4-a716-446655440000`
+    /// - UUID literal: `u'550e8400-…'` or `u"550e8400-…"` (how SurrealDB
+    ///   serializes native UUID record-id keys via `to_sql` / `into_json`)
+    /// - backtick-quoted string keys: `` `complex id` ``
     fn from(s: &str) -> Self {
-        if let Ok(u) = Uuid::parse_str(s) {
+        let s = s.trim();
+        // SurrealDB UUID record-id keys serialize as `u'…'` / `u"…"`.
+        if let Some(inner) = strip_uuid_literal(s) {
+            if let Ok(u) = Uuid::parse_str(inner) {
+                return Key::Uuid(u);
+            }
+        }
+        // Strip surrounding backticks used for non-simple string keys in SQL form.
+        let unquoted = strip_backticks(s);
+        if let Ok(u) = Uuid::parse_str(unquoted.as_ref()) {
             Key::Uuid(u)
-        } else if let Ok(i) = s.parse::<i64>() {
+        } else if let Ok(i) = unquoted.as_ref().parse::<i64>() {
             Key::Int(i)
         } else {
-            Key::String(s.to_owned())
+            Key::String(unquoted.into_owned())
         }
     }
+}
+
+/// `u'…'` / `u"…"` SurrealDB UUID literal → inner body, or `None` if not that form.
+fn strip_uuid_literal(s: &str) -> Option<&str> {
+    let rest = s.strip_prefix('u').or_else(|| s.strip_prefix('U'))?;
+    if rest.len() >= 2 {
+        let bytes = rest.as_bytes();
+        let open = bytes[0];
+        let close = bytes[bytes.len() - 1];
+        if (open == b'\'' && close == b'\'') || (open == b'"' && close == b'"') {
+            return Some(&rest[1..rest.len() - 1]);
+        }
+    }
+    None
+}
+
+/// Strip a single pair of surrounding backticks, unescaping `\`` and `\\`.
+/// Returns the original slice when the input is not backtick-wrapped.
+fn strip_backticks(s: &str) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
+    if s.len() < 2 || !s.starts_with('`') || !s.ends_with('`') {
+        return Cow::Borrowed(s);
+    }
+    let inner = &s[1..s.len() - 1];
+    if !inner.contains('\\') {
+        return Cow::Borrowed(inner);
+    }
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(next) = chars.next() {
+                out.push(next);
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    Cow::Owned(out)
 }
 impl From<String> for Key {
     fn from(s: String) -> Self {
@@ -317,8 +375,20 @@ pub trait SurrealSchema: SurrealRecord {
 
 #[cfg(test)]
 mod tests {
-    use super::{Key, LineString, Point, Polygon};
+    use super::{Key, LineString, Point, Polygon, SurrealRecord, Thing};
     use std::str::FromStr;
+
+    #[derive(Debug, Clone)]
+    struct Dummy;
+
+    impl SurrealRecord for Dummy {
+        fn table_name() -> &'static str {
+            "test"
+        }
+        fn primary_key() -> &'static str {
+            "id"
+        }
+    }
 
     fn render(k: &Key) -> String {
         let mut s = String::new();
@@ -332,6 +402,26 @@ mod tests {
         assert!(matches!(Key::from("not-a-number"), Key::String(_)));
         assert!(matches!(
             Key::from("550e8400-e29b-41d4-a716-446655440000"),
+            Key::Uuid(_)
+        ));
+        // SurrealDB wire form for a native UUID record-id key (issue #1).
+        let u = Key::from("u'550e8400-e29b-41d4-a716-446655440000'");
+        assert!(
+            matches!(u, Key::Uuid(_)),
+            "expected Key::Uuid from u'…' form, got {u:?}"
+        );
+        assert_eq!(
+            u,
+            Key::from("550e8400-e29b-41d4-a716-446655440000"),
+            "u'…' and bare UUID must parse to the same key"
+        );
+        assert!(matches!(
+            Key::from(r#"u"550e8400-e29b-41d4-a716-446655440000""#),
+            Key::Uuid(_)
+        ));
+        // Backtick-wrapped UUID (older/string-key SQL form) still becomes Uuid.
+        assert!(matches!(
+            Key::from("`550e8400-e29b-41d4-a716-446655440000`"),
             Key::Uuid(_)
         ));
     }
@@ -348,14 +438,28 @@ mod tests {
         assert_eq!(render(&Key::Int(7)), "7");
         // simple identifier → bare
         assert_eq!(render(&Key::String("alice".into())), "alice");
-        // UUID has dashes → must be backtick-quoted so it isn't parsed as math
+        // Native UUID key → SurrealDB `u'…'` literal (not backticks / string key)
         assert_eq!(
             render(&Key::from("550e8400-e29b-41d4-a716-446655440000")),
-            "`550e8400-e29b-41d4-a716-446655440000`"
+            "u'550e8400-e29b-41d4-a716-446655440000'"
         );
         // special chars → quoted + escaped
         assert_eq!(render(&Key::String("a b/c".into())), "`a b/c`");
         assert_eq!(render(&Key::String("ti`ck".into())), "`ti\\`ck`");
+    }
+
+    #[test]
+    fn thing_deserializes_uuid_wire_form() {
+        // SurrealDB's into_json / to_sql emits native UUID record ids as
+        // `table:u'…'`. That must become Key::Uuid, not Key::String("u'…'").
+        let json = r#""test:u'550e8400-e29b-41d4-a716-446655440000'""#;
+        let t: Thing<Dummy> = serde_json::from_str(json).unwrap();
+        assert!(
+            matches!(t.key, Key::Uuid(_)),
+            "expected Key::Uuid, got {:?}",
+            t.key
+        );
+        assert_eq!(t.key, Key::from("550e8400-e29b-41d4-a716-446655440000"));
     }
 
     #[test]

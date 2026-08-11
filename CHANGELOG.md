@@ -8,6 +8,22 @@ The section header for each release is `## [<version>] - <YYYY-MM-DD>`; the
 release workflow extracts the matching section verbatim as the GitHub Release
 notes, so keep this format intact.
 
+## [0.8.1] - 2026-08-11
+
+Patch release: native UUID record ids round-trip correctly. Bump to
+`somnia = "0.8.1"` (or keep `somnia = "0.8"` if you already use a caret range).
+
+### Fixed
+
+- **UUID record ids no longer deserialize as `Key::String("u'…'")`**
+  ([#1](https://github.com/vbasky/somnia/issues/1)). SurrealDB serializes native
+  UUID record-id keys as `table:u'…'` over JSON; `Key` / `Thing` now recognize
+  that wire form (and backtick-quoted keys) and parse them as `Key::Uuid`.
+  `Key::render_id` also emits the native `u'…'` form for UUID keys instead of
+  backticks, so create/filter/RELATE keep a real uuid key rather than a string
+  that only looks like one. Covered by unit tests and a live `mem://`
+  create→select regression.
+
 ## [0.8.0] - 2026-06-23
 
 Completes the P3 roadmap tier: typed authentication, live queries, full-text /

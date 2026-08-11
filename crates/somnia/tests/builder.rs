@@ -290,9 +290,9 @@ mod tests {
     }
 
     #[test]
-    fn thing_literal_escapes_uuid_key() {
-        // A UUID record-id key has dashes; it must be backtick-quoted or it parses
-        // as an arithmetic expression rather than a record id.
+    fn thing_literal_uses_uuid_key_form() {
+        // A UUID record-id key renders as SurrealDB's native `u'…'` form so the
+        // key stays a real uuid (not a string that looks like one).
         let t: Thing<SystemSetting> = Thing::new("550e8400-e29b-41d4-a716-446655440000");
         let sql = SystemSetting::table()
             .project(vec![col("ref")])
@@ -300,7 +300,7 @@ mod tests {
             .to_surrealql();
         assert_eq!(
             sql,
-            "SELECT ref FROM system_settings WHERE ref = system_settings:`550e8400-e29b-41d4-a716-446655440000`"
+            "SELECT ref FROM system_settings WHERE ref = system_settings:u'550e8400-e29b-41d4-a716-446655440000'"
         );
     }
 
